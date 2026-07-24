@@ -99,6 +99,11 @@ async def register_user(
     otp_code = generate_otp_code()
     otp_expires = datetime.now(timezone.utc) + timedelta(minutes=10)
 
+    # Prominent ASCII Terminal Logging for Local Dev
+    print("\n========================================================")
+    print(f"  [LOCAL DEV OTP] VERIFICATION CODE FOR {req.email}: {otp_code}")
+    print("========================================================\n")
+
     user = User(
         email=req.email,
         hashed_password=hashed_pwd,
@@ -179,6 +184,8 @@ async def verify_code(
     await db.commit()
     await db.refresh(user)
 
+    print(f"\n[Auth SUCCESS] User {user.email} successfully verified via OTP!")
+
     # Generate JWT token upon verification
     access_token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value})
     return TokenResponse(
@@ -211,10 +218,17 @@ async def resend_code(
     user.otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
     await db.commit()
 
+    print("\n========================================================")
+    print(f"  [LOCAL DEV RESENT OTP] VERIFICATION CODE FOR {req.email}: {otp_code}")
+    print("========================================================\n")
+
     recipient_display_name = user.email.split("@")[0].capitalize()
     background_tasks.add_task(send_welcome_email, user.email, recipient_display_name, otp_code)
 
-    return {"message": f"A new 6-digit verification code has been dispatched to {user.email}"}
+    return {
+        "message": f"A new 6-digit verification code has been dispatched to {user.email}",
+        "dev_otp": otp_code  # Helpful for local dev testing
+    }
 
 
 @router.post("/login", response_model=TokenResponse)

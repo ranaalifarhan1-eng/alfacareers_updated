@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { MailCheck, ArrowRight, Sparkles, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { MailCheck, ArrowRight, Sparkles, CheckCircle2, AlertCircle, RefreshCw, Terminal } from 'lucide-react';
 
 export default function VerifyNoticePage() {
   const router = useRouter();
@@ -17,6 +17,7 @@ export default function VerifyNoticePage() {
   const [resending, setResending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [devOtp, setDevOtp] = useState<string | null>(null);
 
   useEffect(() => {
     // Focus first input box on load
@@ -151,6 +152,9 @@ export default function VerifyNoticePage() {
         }
 
         setSuccessMessage(data.message || 'A new 6-digit code has been dispatched.');
+        if (data.dev_otp) {
+          setDevOtp(data.dev_otp);
+        }
         success = true;
         break;
       } catch (err: any) {
@@ -191,6 +195,19 @@ export default function VerifyNoticePage() {
           Enter the 6-digit verification code sent to <br />
           <strong className="text-slate-900 font-semibold">{email || 'your email'}</strong>
         </p>
+
+        {/* Local Dev Helper Notification */}
+        <div className="mb-4 p-2.5 bg-blue-50/80 border border-blue-200 text-blue-800 rounded-xl text-left text-xs flex items-start space-x-2">
+          <Terminal className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold">Local Dev Note:</span> Check your backend terminal log to view the generated 6-digit OTP code in real-time.
+            {devOtp && (
+              <p className="mt-1 font-mono font-bold text-blue-900 bg-blue-100/80 px-2 py-1 rounded inline-block">
+                Resent Code: {devOtp}
+              </p>
+            )}
+          </div>
+        </div>
 
         {/* Alerts */}
         {error && (
