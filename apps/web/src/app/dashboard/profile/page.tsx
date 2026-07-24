@@ -20,7 +20,10 @@ import {
   Calendar,
   Trash2,
   RefreshCw,
-  GraduationCap
+  GraduationCap,
+  FolderOpen,
+  ArrowRight,
+  Check
 } from 'lucide-react';
 
 interface WorkExperience {
@@ -39,6 +42,15 @@ interface EducationItem {
   graduation_year?: string;
 }
 
+interface UploadedCV {
+  id: number;
+  filename: string;
+  file_url?: string;
+  parsed_json: any;
+  is_primary: boolean;
+  created_at: string;
+}
+
 export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -54,6 +66,7 @@ export default function ProfilePage() {
 
   const [experiences, setExperiences] = useState<WorkExperience[]>([]);
   const [educations, setEducations] = useState<EducationItem[]>([]);
+  const [uploadedCvs, setUploadedCvs] = useState<UploadedCV[]>([]);
   
   const [masterCvText, setMasterCvText] = useState('');
 
@@ -64,41 +77,50 @@ export default function ProfilePage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Upload Confirmation Modal State
+  const [modalOpen, setModalOpen] = useState(false);
+  const [pendingUploadData, setPendingUploadData] = useState<{
+    cv_id: number;
+    filename: string;
+    parsed_data: any;
+  } | null>(null);
+
   useEffect(() => {
-    const fetchProfile = async () => {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-      if (!token) return;
-
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-
-      try {
-        const resp = await fetch(`${backendUrl}/api/v1/auth/profile`, {
-          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
-        });
-
-        if (resp.ok) {
-          const data = await resp.json();
-          setFullName(data.full_name || '');
-          setPhone(data.phone || '');
-          setLocation(data.location || 'Lahore, Pakistan');
-          setHeadline(data.headline || 'Senior Corporate Specialist');
-          setBio(data.bio || '');
-          setSkills(data.skills || []);
-          setExperiences(data.experience || []);
-          setEducations(data.education || []);
-          setMasterCvText(data.master_cv_url || '');
-        }
-      } catch (err) {
-        console.warn('Fetch profile error:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchProfile();
   }, []);
 
-  // Handle Drag & Drop / File Select CV Upload
+  const fetchProfile = async () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    if (!token) return;
+
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+    try {
+      const resp = await fetch(`${backendUrl}/api/v1/auth/profile`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        setFullName(data.full_name || '');
+        setPhone(data.phone || '');
+        setLocation(data.location || 'Lahore, Pakistan');
+        setHeadline(data.headline || 'Senior Corporate Specialist');
+        setBio(data.bio || '');
+        setSkills(data.skills || []);
+        setExperiences(data.experience || []);
+        setEducations(data.education || []);
+        setMasterCvText(data.master_cv_url || '');
+        setUploadedCvs(data.uploaded_cvs || []);
+      }
+    } catch (err) {
+      console.warn('Fetch profile error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle CV Upload
   const handleCvFileUpload = async (file: File) => {
     if (!file) return;
 
@@ -123,24 +145,78 @@ export default function ProfilePage() {
         throw new Error('Failed to parse uploaded CV file.');
       }
 
-      const data = await resp.json();
+      const uploadResult = await resp.json();
       
-      // Auto-populate all profile fields
-      setFullName(data.full_name || fullName);
-      setPhone(data.phone || phone);
-      setLocation(data.location || location);
-      setHeadline(data.headline || headline);
-      setBio(data.bio || bio);
-      setSkills(data.skills || skills);
-      setExperiences(data.experience || experiences);
-      setEducations(data.education || educations);
-      setMasterCvText(data.master_cv_url || masterCvText);
+      // Open Upload Confirmation Modal
+      setPendingUploadData(uploadResult);
+      setModalOpen(true);
 
-      setMessage(`AI successfully read & structured ${file.name}! Profile fields auto-filled.`);
+      // Refresh list of saved CVs
+      fetchProfile();
     } catch (err: any) {
       setError(err.message || 'Error uploading CV.');
     } finally {
       setParsingCv(false);
+    }
+  };
+
+  // Confirm Auto-Fill Profile from Modal
+  const handleApplyCvParsed = async (cvId: number) => {
+    setModalOpen(false);
+    setError(null);
+    setMessage(null);
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+    try {
+      const resp = await fetch(`${backendUrl}/api/v1/auth/profile/apply-cv-parsed`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ cv_id: cvId })
+      });
+
+      if (!resp.ok) {
+        throw new Error('Failed to apply CV data to profile.');
+      }
+
+      const updated = await resp.json();
+      setFullName(updated.full_name || '');
+      setPhone(updated.phone || '');
+      setLocation(updated.location || '');
+      setHeadline(updated.headline || '');
+      setBio(updated.bio || '');
+      setSkills(updated.skills || []);
+      setExperiences(updated.experience || []);
+      setEducations(updated.education || []);
+      setMasterCvText(updated.master_cv_url || '');
+
+      setMessage('Profile fields successfully auto-filled from uploaded CV!');
+    } catch (err: any) {
+      setError(err.message || 'Error applying CV data.');
+    }
+  };
+
+  // Delete Saved CV
+  const handleDeleteCv = async (cvId: number) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+    try {
+      const resp = await fetch(`${backendUrl}/api/v1/auth/profile/cvs/${cvId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (resp.ok) {
+        setUploadedCvs(uploadedCvs.filter(c => c.id !== cvId));
+        setMessage('CV file successfully removed from gallery.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete CV.');
     }
   };
 
@@ -157,7 +233,7 @@ export default function ProfilePage() {
     setSkills(skills.filter(s => s !== skillToRemove));
   };
 
-  // Work Experience Manager Handlers
+  // Work Experience Handlers
   const handleAddExperience = () => {
     setExperiences([
       ...experiences,
@@ -183,7 +259,7 @@ export default function ProfilePage() {
     setExperiences(experiences.filter((_, i) => i !== index));
   };
 
-  // Education Manager Handlers
+  // Education Handlers
   const handleAddEducation = () => {
     setEducations([
       ...educations,
@@ -261,13 +337,13 @@ export default function ProfilePage() {
       <div>
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold mb-2 border border-blue-200">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Automated AI Candidate Profile & Experience Builder</span>
+          <span>Multi-CV Manager & Layout-Aware AI Parsing Engine</span>
         </div>
         <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-          My Profile & Experience
+          My Profile & Saved CV Gallery
         </h1>
         <p className="text-xs text-slate-500 mt-1">
-          Upload your CV for instant AI parsing, manage work history, and fine-tune your ATS resume content
+          Upload multi-column CVs with layout-aware pdfplumber parsing, manage saved resumes, and auto-fill your profile
         </p>
       </div>
 
@@ -306,8 +382,8 @@ export default function ProfilePage() {
         {parsingCv ? (
           <div className="flex flex-col items-center justify-center py-4">
             <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mb-3" />
-            <p className="text-sm font-bold text-slate-900">AI is reading & structuring your CV...</p>
-            <p className="text-xs text-slate-500 mt-1">Extracting experience, skills, and contact info via Ollama Llama 3.1</p>
+            <p className="text-sm font-bold text-slate-900">AI is reading layout & structuring your CV...</p>
+            <p className="text-xs text-slate-500 mt-1">Using pdfplumber layout-aware parser & Ollama Llama 3.1</p>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-2">
@@ -315,15 +391,73 @@ export default function ProfilePage() {
               <Upload className="w-6 h-6" />
             </div>
             <h3 className="text-base font-bold text-slate-900">
-              Drag & Drop your CV / Resume here or <span className="text-blue-600 underline">Browse File</span>
+              Drag & Drop multi-column CV or <span className="text-blue-600 underline">Browse File</span>
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              Supports PDF, DOCX, or TXT • Instant AI auto-fill for all sections below
+              Supports PDF (pdfplumber 2-column layout), DOCX, or TXT • Choose to auto-fill or save
             </p>
           </div>
         )}
       </div>
 
+      {/* Saved CVs Gallery Section */}
+      {uploadedCvs.length > 0 && (
+        <div className="glass-card p-6 rounded-2xl border border-slate-200">
+          <div className="flex items-center space-x-2 mb-4">
+            <FolderOpen className="w-4 h-4 text-blue-600" />
+            <h2 className="text-base font-bold text-slate-900">
+              Saved CVs Gallery ({uploadedCvs.length})
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {uploadedCvs.map((cv) => (
+              <div key={cv.id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                    <h4 className="text-xs font-bold text-slate-900 truncate" title={cv.filename}>
+                      {cv.filename}
+                    </h4>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Uploaded: {new Date(cv.created_at).toLocaleDateString()}
+                  </p>
+
+                  {cv.parsed_json && (
+                    <div className="mt-2 text-[10px] text-slate-600 space-y-0.5">
+                      <p><strong>Parsed Name:</strong> {cv.parsed_json.full_name || 'Candidate'}</p>
+                      <p><strong>Skills:</strong> {cv.parsed_json.skills?.length || 0} skills</p>
+                      <p><strong>Jobs:</strong> {cv.parsed_json.experience?.length || 0} positions</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-200/80 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleApplyCvParsed(cv.id)}
+                    className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] rounded-lg transition flex items-center justify-center space-x-1"
+                  >
+                    <Check className="w-3 h-3" />
+                    <span>Apply to Profile</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCv(cv.id)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Main Profile Form */}
       <form onSubmit={handleSaveProfile} className="space-y-8">
         {/* Section 1: Basic Information */}
         <div className="glass-card p-6 rounded-2xl border border-slate-200">
@@ -381,7 +515,7 @@ export default function ProfilePage() {
                 type="text"
                 value={headline}
                 onChange={(e) => setHeadline(e.target.value)}
-                placeholder="e.g. Senior Finance Manager | Corporate Strategy"
+                placeholder="e.g. Google Ads ROI Specialist | Performance Marketing Expert"
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
               />
             </div>
@@ -449,7 +583,7 @@ export default function ProfilePage() {
                         type="text"
                         value={exp.job_title}
                         onChange={(e) => handleUpdateExperience(idx, 'job_title', e.target.value)}
-                        placeholder="e.g. Senior Operations Lead"
+                        placeholder="e.g. Performance Marketing Manager"
                         className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-600"
                       />
                     </div>
@@ -462,7 +596,7 @@ export default function ProfilePage() {
                         type="text"
                         value={exp.company}
                         onChange={(e) => handleUpdateExperience(idx, 'company', e.target.value)}
-                        placeholder="e.g. Engro Corporation"
+                        placeholder="e.g. Seven States Global Visa Services - Dubai"
                         className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-600"
                       />
                     </div>
@@ -476,7 +610,7 @@ export default function ProfilePage() {
                           type="text"
                           value={exp.start_date || ''}
                           onChange={(e) => handleUpdateExperience(idx, 'start_date', e.target.value)}
-                          placeholder="2022"
+                          placeholder="Aug 2023"
                           className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
                         />
                         <span className="text-slate-400 text-xs">–</span>
@@ -484,7 +618,7 @@ export default function ProfilePage() {
                           type="text"
                           value={exp.end_date || ''}
                           onChange={(e) => handleUpdateExperience(idx, 'end_date', e.target.value)}
-                          placeholder="Present"
+                          placeholder="Till"
                           className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
                         />
                       </div>
@@ -537,7 +671,7 @@ export default function ProfilePage() {
               type="text"
               value={skillInput}
               onChange={(e) => setSkillInput(e.target.value)}
-              placeholder="Add skill (e.g. Financial Modeling, Python, SAP)"
+              placeholder="Add skill (e.g. Google Ads, Meta Ads, GA4, GTM)"
               className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
             />
             <button
@@ -603,21 +737,21 @@ export default function ProfilePage() {
                       type="text"
                       value={edu.degree}
                       onChange={(e) => handleUpdateEducation(idx, 'degree', e.target.value)}
-                      placeholder="Degree (e.g. BS Computer Science)"
+                      placeholder="Degree (e.g. ADP (CS))"
                       className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900"
                     />
                     <input
                       type="text"
                       value={edu.institution}
                       onChange={(e) => handleUpdateEducation(idx, 'institution', e.target.value)}
-                      placeholder="University / Institution"
+                      placeholder="University / Board Name"
                       className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900"
                     />
                     <input
                       type="text"
                       value={edu.graduation_year || ''}
                       onChange={(e) => handleUpdateEducation(idx, 'graduation_year', e.target.value)}
-                      placeholder="Year (e.g. 2021)"
+                      placeholder="Year (e.g. 2022)"
                       className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900"
                     />
                   </div>
@@ -634,25 +768,6 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {/* Section 5: Master CV Text Container */}
-        <div className="glass-card p-6 rounded-2xl border border-slate-200">
-          <h2 className="text-base font-bold text-slate-900 mb-2 flex items-center space-x-2">
-            <FileText className="w-4 h-4 text-blue-600" />
-            <span>5. Raw Master CV Text (AI Extracted)</span>
-          </h2>
-          <p className="text-xs text-slate-500 mb-4">
-            Raw extracted text from your uploaded CV file
-          </p>
-
-          <textarea
-            rows={5}
-            value={masterCvText}
-            onChange={(e) => setMasterCvText(e.target.value)}
-            placeholder="Raw CV text will appear here automatically when you upload a file above..."
-            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 leading-relaxed"
-          />
-        </div>
-
         {/* Save Button */}
         <div className="flex justify-end">
           <button
@@ -665,6 +780,54 @@ export default function ProfilePage() {
           </button>
         </div>
       </form>
+
+      {/* Upload Confirmation Modal */}
+      {modalOpen && pendingUploadData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full border border-slate-200 shadow-2xl space-y-5 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2 text-emerald-600 font-bold text-base">
+                <CheckCircle2 className="w-5 h-5" />
+                <span>CV Uploaded Successfully!</span>
+              </div>
+              <button
+                onClick={() => setModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600">
+              Your file <strong className="text-slate-900">{pendingUploadData.filename}</strong> has been layout-parsed via pdfplumber and saved to your CV Gallery.
+            </p>
+
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+              <p><strong>Candidate Name:</strong> {pendingUploadData.parsed_data?.full_name || 'N/A'}</p>
+              <p><strong>Headline:</strong> {pendingUploadData.parsed_data?.headline || 'N/A'}</p>
+              <p><strong>Skills Extracted:</strong> {pendingUploadData.parsed_data?.skills?.length || 0} skills</p>
+              <p><strong>Experience Entries:</strong> {pendingUploadData.parsed_data?.experience?.length || 0} positions</p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+              <button
+                onClick={() => handleApplyCvParsed(pendingUploadData.cv_id)}
+                className="w-full sm:w-auto flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-md transition flex items-center justify-center space-x-1.5"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Auto-Fill Profile Fields</span>
+              </button>
+
+              <button
+                onClick={() => setModalOpen(false)}
+                className="w-full sm:w-auto py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition"
+              >
+                Keep Current & Just Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

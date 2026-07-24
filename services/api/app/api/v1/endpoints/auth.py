@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.base import get_db
-from app.db.models import User, UserRole, CandidateProfile, EmployerProfile
+from app.db.models import User, UserRole, CandidateProfile, EmployerProfile, CandidateCV
 from app.core.security import get_password_hash, verify_password, create_access_token, decode_access_token
 from app.core.config import settings
 from app.core.email import send_welcome_email
@@ -25,8 +25,8 @@ class UserRegisterRequest(BaseModel):
     email: EmailStr
     password: str
     role: UserRole = UserRole.CANDIDATE
-    full_name: Optional[str] = None  # Candidate full name
-    company_name: Optional[str] = None  # Employer company name
+    full_name: Optional[str] = None
+    company_name: Optional[str] = None
 
 
 class VerifyCodeRequest(BaseModel):
@@ -58,6 +58,18 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
+class CandidateCVResponse(BaseModel):
+    id: int
+    filename: str
+    file_url: Optional[str] = None
+    parsed_json: Dict[str, Any] = {}
+    is_primary: bool = False
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
 class CandidateProfileDetailResponse(BaseModel):
     id: int
     user_id: int
@@ -72,6 +84,7 @@ class CandidateProfileDetailResponse(BaseModel):
     experience: List[Dict[str, Any]] = []
     education: List[Dict[str, Any]] = []
     master_cv_url: Optional[str] = None
+    uploaded_cvs: List[CandidateCVResponse] = []
 
 
 class CandidateProfileUpdateRequest(BaseModel):
@@ -84,6 +97,10 @@ class CandidateProfileUpdateRequest(BaseModel):
     experience: Optional[List[Dict[str, Any]]] = None
     education: Optional[List[Dict[str, Any]]] = None
     master_cv_text: Optional[str] = None
+
+
+class ApplyCVParsedRequest(BaseModel):
+    cv_id: int
 
 
 def generate_otp_code() -> str:
@@ -322,7 +339,7 @@ async def get_candidate_profile(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get full candidate profile details."""
+    """Get full candidate profile details alongside list of uploaded CVs."""
     res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == current_user.id))
     cp = res.scalars().first()
 
@@ -330,11 +347,27 @@ async def get_candidate_profile(
         cp = CandidateProfile(
             user_id=current_user.id,
             full_name=current_user.email.split("@")[0].capitalize(),
-            skills=["Financial Analysis", "Python", "Strategic Management"]
+            skills=["Google Ads", "Performance Marketing", "Python"]
         )
         db.add(cp)
         await db.commit()
         await db.refresh(cp)
+
+    # Fetch uploaded CVs
+    cv_res = await db.execute(select(CandidateCV).where(CandidateCV.user_id == current_user.id).order_by(CandidateCV.created_at.desc()))
+    cvs = cv_res.scalars().all()
+
+    formatted_cvs = [
+        CandidateCVResponse(
+            id=c.id,
+            filename=c.filename,
+            file_url=c.file_url,
+            parsed_json=c.parsed_json or {},
+            is_primary=c.is_primary,
+            created_at=c.created_at.isoformat() if c.created_at else datetime.now(timezone.utc).isoformat()
+        )
+        for c in cvs
+    ]
 
     return CandidateProfileDetailResponse(
         id=cp.id,
@@ -346,10 +379,11 @@ async def get_candidate_profile(
         location=cp.location or "Lahore, Pakistan",
         headline=cp.headline or "Senior Corporate Specialist",
         bio=cp.bio or "Results-oriented professional passionate about high-impact roles.",
-        skills=cp.skills or ["Financial Analysis", "Python", "Strategic Management"],
+        skills=cp.skills or ["Google Ads", "Performance Marketing", "Python"],
         experience=cp.experience or [],
         education=cp.education or [],
-        master_cv_url=cp.master_cv_url
+        master_cv_url=cp.master_cv_url,
+        uploaded_cvs=formatted_cvs
     )
 
 
@@ -391,6 +425,15 @@ async def update_candidate_profile(
 
     print(f"\n[Profile SUCCESS] Updated profile for candidate: {cp.full_name} ({current_user.email})")
 
+    # Fetch uploaded CVs
+    cv_res = await db.execute(select(CandidateCV).where(CandidateCV.user_id == current_user.id).order_by(CandidateCV.created_at.desc()))
+    cvs = cv_res.scalars().all()
+    formatted_cvs = [
+        CandidateCVResponse(
+            id=c.id, filename=c.filename, file_url=c.file_url, parsed_json=c.parsed_json or {}, is_primary=c.is_primary, created_at=c.created_at.isoformat() if c.created_at else datetime.now(timezone.utc).isoformat()
+        ) for c in cvs
+    ]
+
     return CandidateProfileDetailResponse(
         id=cp.id,
         user_id=cp.user_id,
@@ -404,38 +447,75 @@ async def update_candidate_profile(
         skills=cp.skills or [],
         experience=cp.experience or [],
         education=cp.education or [],
-        master_cv_url=cp.master_cv_url
+        master_cv_url=cp.master_cv_url,
+        uploaded_cvs=formatted_cvs
     )
 
 
-@router.post("/profile/upload-cv", response_model=CandidateProfileDetailResponse)
-async def upload_and_parse_cv(
+@router.post("/profile/upload-cv")
+async def upload_and_save_cv(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Automated AI CV Upload & Parsing:
-    Extracts text from PDF/DOCX file, structures JSON via Ollama LLM / dynamic text parser, updates DB, and returns populated candidate profile.
+    Automated AI CV Upload & Multi-CV Gallery Saver:
+    Parses PDF/DOCX via pdfplumber/Llama 3.1 and saves into CandidateCV table WITHOUT forcibly overwriting current profile.
+    Returns { cv_id, filename, parsed_data }.
     """
-    print(f"\n[CV Upload] Processing uploaded file: {file.filename} ({file.content_type}) for user: {current_user.email}")
+    print(f"\n[Multi-CV Upload] Processing uploaded file: {file.filename} for user: {current_user.email}")
     file_bytes = await file.read()
 
-    # 1. Extract raw text from file
+    # 1. Layout-aware text extraction
     raw_text = cv_parser.extract_text_from_file_bytes(file_bytes, file.filename)
 
-    # 2. Parse text with Ollama Llama 3.1 LLM / dynamic text sectioning
+    # 2. Parse text into structured JSON
     parsed = await cv_parser.parse_cv_text_with_llm(raw_text)
 
-    # 3. Update candidate database record
-    res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == current_user.id))
-    cp = res.scalars().first()
+    # 3. Save into CandidateCV table
+    new_cv = CandidateCV(
+        user_id=current_user.id,
+        filename=file.filename,
+        raw_text=raw_text[:5000],
+        parsed_json=parsed,
+        is_primary=False
+    )
+    db.add(new_cv)
+    await db.commit()
+    await db.refresh(new_cv)
+
+    print(f"[Multi-CV Upload SUCCESS] Saved CV id={new_cv.id} ({new_cv.filename}) with parsed candidate: {parsed.get('full_name')}")
+
+    return {
+        "cv_id": new_cv.id,
+        "filename": new_cv.filename,
+        "parsed_data": parsed
+    }
+
+
+@router.post("/profile/apply-cv-parsed", response_model=CandidateProfileDetailResponse)
+async def apply_cv_parsed_to_profile(
+    req: ApplyCVParsedRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Sync a saved CandidateCV's parsed JSON into the main candidate profile fields."""
+    res = await db.execute(select(CandidateCV).where(CandidateCV.id == req.cv_id, CandidateCV.user_id == current_user.id))
+    cv_record = res.scalars().first()
+
+    if not cv_record:
+        raise HTTPException(status_code=404, detail="Target CV record not found")
+
+    parsed = cv_record.parsed_json or {}
+
+    prof_res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == current_user.id))
+    cp = prof_res.scalars().first()
 
     if not cp:
-        cp = CandidateProfile(user_id=current_user.id, full_name=parsed.get("full_name") or current_user.email.split("@")[0].capitalize())
+        cp = CandidateProfile(user_id=current_user.id, full_name=parsed.get("full_name", current_user.email.split("@")[0].capitalize()))
         db.add(cp)
 
-    if parsed.get("full_name") and len(parsed["full_name"]) > 1:
+    if parsed.get("full_name"):
         cp.full_name = parsed["full_name"]
     if parsed.get("phone"):
         cp.phone = parsed["phone"]
@@ -445,19 +525,28 @@ async def upload_and_parse_cv(
         cp.headline = parsed["headline"]
     if parsed.get("bio"):
         cp.bio = parsed["bio"]
-    if parsed.get("skills") and len(parsed["skills"]) > 0:
+    if parsed.get("skills"):
         cp.skills = parsed["skills"]
-    if parsed.get("experience") and len(parsed["experience"]) > 0:
+    if parsed.get("experience"):
         cp.experience = parsed["experience"]
-    if parsed.get("education") and len(parsed["education"]) > 0:
+    if parsed.get("education"):
         cp.education = parsed["education"]
-    
-    cp.master_cv_url = raw_text[:4000]
+    if cv_record.raw_text:
+        cp.master_cv_url = cv_record.raw_text
 
     await db.commit()
     await db.refresh(cp)
 
-    print(f"[CV Upload SUCCESS] Updated profile from REAL CV: Full Name='{cp.full_name}', Skills={len(cp.skills or [])}, Experience={len(cp.experience or [])}")
+    print(f"[Apply CV SUCCESS] Synced CV id={cv_record.id} to main profile for {cp.full_name}")
+
+    # Fetch uploaded CVs
+    cv_res = await db.execute(select(CandidateCV).where(CandidateCV.user_id == current_user.id).order_by(CandidateCV.created_at.desc()))
+    cvs = cv_res.scalars().all()
+    formatted_cvs = [
+        CandidateCVResponse(
+            id=c.id, filename=c.filename, file_url=c.file_url, parsed_json=c.parsed_json or {}, is_primary=c.is_primary, created_at=c.created_at.isoformat() if c.created_at else datetime.now(timezone.utc).isoformat()
+        ) for c in cvs
+    ]
 
     return CandidateProfileDetailResponse(
         id=cp.id,
@@ -472,5 +561,26 @@ async def upload_and_parse_cv(
         skills=cp.skills or [],
         experience=cp.experience or [],
         education=cp.education or [],
-        master_cv_url=cp.master_cv_url
+        master_cv_url=cp.master_cv_url,
+        uploaded_cvs=formatted_cvs
     )
+
+
+@router.delete("/profile/cvs/{cv_id}")
+async def delete_candidate_cv(
+    cv_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a saved CV record."""
+    res = await db.execute(select(CandidateCV).where(CandidateCV.id == cv_id, CandidateCV.user_id == current_user.id))
+    cv_record = res.scalars().first()
+
+    if not cv_record:
+        raise HTTPException(status_code=404, detail="CV record not found")
+
+    await db.delete(cv_record)
+    await db.commit()
+
+    print(f"[Delete CV SUCCESS] Removed CV id={cv_id} for user {current_user.email}")
+    return {"message": f"Successfully deleted CV '{cv_record.filename}'"}
