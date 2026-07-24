@@ -416,15 +416,15 @@ async def upload_and_parse_cv(
 ):
     """
     Automated AI CV Upload & Parsing:
-    Extracts text from PDF/DOCX file, structures JSON via Ollama LLM, updates DB, and returns populated candidate profile.
+    Extracts text from PDF/DOCX file, structures JSON via Ollama LLM / dynamic text parser, updates DB, and returns populated candidate profile.
     """
-    print(f"\n[CV Upload] Received file: {file.filename} ({file.content_type}) for user: {current_user.email}")
+    print(f"\n[CV Upload] Processing uploaded file: {file.filename} ({file.content_type}) for user: {current_user.email}")
     file_bytes = await file.read()
 
     # 1. Extract raw text from file
     raw_text = cv_parser.extract_text_from_file_bytes(file_bytes, file.filename)
 
-    # 2. Parse text with Ollama Llama 3.1 LLM
+    # 2. Parse text with Ollama Llama 3.1 LLM / dynamic text sectioning
     parsed = await cv_parser.parse_cv_text_with_llm(raw_text)
 
     # 3. Update candidate database record
@@ -432,31 +432,32 @@ async def upload_and_parse_cv(
     cp = res.scalars().first()
 
     if not cp:
-        cp = CandidateProfile(user_id=current_user.id, full_name=parsed.get("full_name", current_user.email.split("@")[0].capitalize()))
+        cp = CandidateProfile(user_id=current_user.id, full_name=parsed.get("full_name") or current_user.email.split("@")[0].capitalize())
         db.add(cp)
 
-    cp.full_name = parsed.get("full_name") or cp.full_name
+    if parsed.get("full_name") and len(parsed["full_name"]) > 1:
+        cp.full_name = parsed["full_name"]
     if parsed.get("phone"):
-        cp.phone = parsed.get("phone")
+        cp.phone = parsed["phone"]
     if parsed.get("location"):
-        cp.location = parsed.get("location")
+        cp.location = parsed["location"]
     if parsed.get("headline"):
-        cp.headline = parsed.get("headline")
+        cp.headline = parsed["headline"]
     if parsed.get("bio"):
-        cp.bio = parsed.get("bio")
-    if parsed.get("skills"):
-        cp.skills = parsed.get("skills")
-    if parsed.get("experience"):
-        cp.experience = parsed.get("experience")
-    if parsed.get("education"):
-        cp.education = parsed.get("education")
+        cp.bio = parsed["bio"]
+    if parsed.get("skills") and len(parsed["skills"]) > 0:
+        cp.skills = parsed["skills"]
+    if parsed.get("experience") and len(parsed["experience"]) > 0:
+        cp.experience = parsed["experience"]
+    if parsed.get("education") and len(parsed["education"]) > 0:
+        cp.education = parsed["education"]
     
     cp.master_cv_url = raw_text[:4000]
 
     await db.commit()
     await db.refresh(cp)
 
-    print(f"[CV Upload SUCCESS] Auto-populated profile for: {cp.full_name} ({len(cp.skills or [])} skills, {len(cp.experience or [])} experiences)")
+    print(f"[CV Upload SUCCESS] Updated profile from REAL CV: Full Name='{cp.full_name}', Skills={len(cp.skills or [])}, Experience={len(cp.experience or [])}")
 
     return CandidateProfileDetailResponse(
         id=cp.id,
