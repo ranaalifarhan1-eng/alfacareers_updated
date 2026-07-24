@@ -12,9 +12,9 @@ class CareerPageCrawler:
     Uses HTTPX with SSL verification disabled and optional BeautifulSoup4 HTML parsing.
     """
 
-    async def fetch_page_content(self, url: str, timeout: float = 8.0) -> Dict[str, Any]:
+    async def fetch_page_content(self, url: str, timeout: float = 2.5) -> Dict[str, Any]:
         """
-        Fetch HTML and extracted clean text from target career URL safely.
+        Fetch HTML and extracted clean text from target career URL safely and rapidly.
         """
         print(f"[DeepWebCrawler] Crawling URL: {url}...")
         raw_html = ""
@@ -34,7 +34,7 @@ class CareerPageCrawler:
                     clean_text = soup.get_text(separator=" ", strip=True)
                 except Exception:
                     # Regex fallback
-                    no_scripts = re.sub(r"<(script|style|nav|footer|header).*?>.*?</\1>", "", raw_html, flags=re.DOTALL | re.IGNORECASE)
+                    no_scripts = re.sub(r"<(script|style|nav|footer|header).*?>.*.*?/\1>", "", raw_html, flags=re.DOTALL | re.IGNORECASE)
                     clean_text = re.sub(r"<[^>]+>", " ", no_scripts)
                     clean_text = " ".join(clean_text.split())
 
@@ -47,7 +47,7 @@ class CareerPageCrawler:
                     "method": "httpx"
                 }
         except Exception as e:
-            logger.info(f"[DeepWebCrawler] Network fetch fallback for {url}: {e}")
+            logger.info(f"[DeepWebCrawler] Fast network fallback for {url}: {e}")
             return {
                 "url": url,
                 "status_code": 500,

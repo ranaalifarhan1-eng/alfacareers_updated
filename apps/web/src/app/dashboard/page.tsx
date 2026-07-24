@@ -22,7 +22,8 @@ import {
   Download,
   AlertCircle,
   RefreshCw,
-  Send
+  Send,
+  MapPin
 } from 'lucide-react';
 
 interface UserData {
@@ -56,9 +57,10 @@ export default function DashboardPage() {
   const [hunting, setHunting] = useState(false);
   const [applyingJobId, setApplyingJobId] = useState<number | null>(null);
 
-  // Hunt Form Inputs
-  const [huntDomain, setHuntDomain] = useState('engro.com/careers');
-  const [huntKeyword, setHuntKeyword] = useState('Finance');
+  // Intuitive 3-Column Search Inputs
+  const [keyword, setKeyword] = useState('Finance Manager');
+  const [location, setLocation] = useState('Lahore');
+  const [company, setCompany] = useState('');
   
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +146,11 @@ export default function DashboardPage() {
       const resp = await fetch(`${backendUrl}/api/v1/jobs/hunt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domain: huntDomain, keyword: huntKeyword })
+        body: JSON.stringify({
+          keyword,
+          location: location || null,
+          company: company || null
+        })
       });
 
       if (!resp.ok) {
@@ -297,35 +303,73 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Live Deep Web Hunt Trigger Bar */}
-        <div className="glass-card p-6 rounded-2xl mb-8">
-          <h2 className="text-base font-bold text-slate-900 mb-3 flex items-center space-x-2">
-            <Search className="w-4 h-4 text-blue-600" />
-            <span>Live Deep Web Hunter Trigger</span>
-          </h2>
-          <form onSubmit={handleTriggerHunt} className="flex flex-col sm:flex-row items-center gap-3">
-            <input
-              type="text"
-              required
-              value={huntDomain}
-              onChange={(e) => setHuntDomain(e.target.value)}
-              placeholder="Target domain (e.g. engro.com/careers)"
-              className="w-full sm:flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
-            />
-            <input
-              type="text"
-              value={huntKeyword}
-              onChange={(e) => setHuntKeyword(e.target.value)}
-              placeholder="Role keyword (e.g. Finance, Engineer)"
-              className="w-full sm:w-56 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
-            />
+        {/* Intuitive 3-Column Light Corporate Search Container */}
+        <div className="glass-card p-6 rounded-3xl mb-8 border border-slate-200/80 shadow-md">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                <Search className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900 leading-none">
+                  Deep Web Hunter Engine
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Discover un-syndicated roles directly from official corporate career portals
+                </p>
+              </div>
+            </div>
+            <span className="hidden md:inline-flex px-3 py-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded-full border border-blue-200">
+              v2.0 Active
+            </span>
+          </div>
+
+          <form onSubmit={handleTriggerHunt} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            {/* Input 1: Job Title or Skill */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <input
+                type="text"
+                required
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="Job Title or Skill (e.g. Finance Manager)"
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
+              />
+            </div>
+
+            {/* Input 2: City or Country */}
+            <div className="relative">
+              <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="City or Country (e.g. Lahore, Dubai)"
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
+              />
+            </div>
+
+            {/* Input 3: Target Company (Optional) */}
+            <div className="relative">
+              <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <input
+                type="text"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                placeholder="Company (e.g. Engro, or leave blank)"
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
+              />
+            </div>
+
+            {/* Action Button */}
             <button
               type="submit"
               disabled={hunting}
-              className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-xs font-semibold text-white rounded-xl shadow-md transition flex items-center justify-center space-x-2 disabled:opacity-50 shrink-0"
+              className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-xs font-semibold text-white rounded-xl shadow-md shadow-blue-500/20 transition flex items-center justify-center space-x-2 disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${hunting ? 'animate-spin' : ''}`} />
-              <span>{hunting ? 'Hunting Hidden Roles...' : 'Hunt Corporate Pages'}</span>
+              <span>{hunting ? 'Hunting Hidden Roles...' : 'Hunt Hidden Jobs'}</span>
             </button>
           </form>
         </div>

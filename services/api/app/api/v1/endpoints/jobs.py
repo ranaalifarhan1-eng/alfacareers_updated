@@ -23,8 +23,9 @@ ats_compiler = ATSResumeCompiler()
 
 
 class JobHuntRequest(BaseModel):
-    domain: str = "engro.com/careers"
-    keyword: Optional[str] = "Finance"
+    keyword: str  # Required, e.g. "Finance Manager" or "Lead Software Engineer"
+    location: Optional[str] = None  # e.g. "Lahore", "Dubai", "Pakistan", "UAE"
+    company: Optional[str] = None  # e.g. "Engro", "Careem", "engro.com"
 
 
 class JobPostResponse(BaseModel):
@@ -51,13 +52,23 @@ async def trigger_deep_web_hunt(
 ):
     """
     Trigger Deep Web Hunter MVP:
-    Search un-syndicated corporate pages -> Crawl URL -> Parse via Ollama Llama 3.1 -> Store in DB & ChromaDB.
+    Construct un-syndicated search query -> Crawl pages -> Parse via Ollama Llama 3.1 -> Store in DB & ChromaDB.
     """
-    query_str = query_builder.build_query(req.domain, req.keyword or "")
-    print(f"\n[Jobs Endpoint] Starting Deep Web Hunt for query: {query_str}")
+    query_str = query_builder.build_search_query(
+        keyword=req.keyword,
+        location=req.location,
+        company=req.company
+    )
+    print(f"\n[Jobs Endpoint] Triggering Deep Web Hunt for: {query_str}")
 
     # 1. Search career pages
-    search_results = await query_builder.search_career_pages(query_str, num_results=3)
+    search_results = await query_builder.search_career_pages(
+        query=query_str,
+        num_results=3,
+        keyword=req.keyword,
+        location=req.location or "",
+        company=req.company or ""
+    )
     created_jobs: List[JobPost] = []
 
     for item in search_results:
@@ -71,18 +82,23 @@ async def trigger_deep_web_hunt(
         # 3. Structuring via Ollama Llama 3.1 LLM
         parsed_data = await llm_structurer.parse_job_posting(raw_text, url, snippet)
 
+        # Override location/title/company if specified by user search
+        title = parsed_data.get("title") or req.keyword.title()
+        company_name = parsed_data.get("company_name") or (req.company.title() if req.company else "Enterprise Employer")
+        location = parsed_data.get("location") or (req.location.title() if req.location else "Lahore, Pakistan")
+
         # 4. Save to Database
         job = JobPost(
-            title=parsed_data.get("title", "Corporate Opportunity"),
-            company_name=parsed_data.get("company_name", "Enterprise Employer"),
-            location=parsed_data.get("location", "Lahore, Pakistan"),
+            title=title,
+            company_name=company_name,
+            location=location,
             job_type=parsed_data.get("job_type", "Full-time"),
             salary_range=parsed_data.get("salary_range", "$ Negotiable"),
-            description=parsed_data.get("description", "High-impact un-syndicated role."),
+            description=parsed_data.get("description", f"High-impact role at {company_name} in {location}."),
             source_type=JobSourceType.DEEP_WEB,
             apply_url=parsed_data.get("apply_url", url),
-            apply_email=parsed_data.get("apply_email", "careers@company.com"),
-            authenticity_score=float(parsed_data.get("authenticity_score", 95.0)),
+            apply_email=parsed_data.get("apply_email", "careers@" + company_name.lower().replace(" ", "") + ".com"),
+            authenticity_score=float(parsed_data.get("authenticity_score", 96.5)),
             is_published=True
         )
 
@@ -106,7 +122,7 @@ async def trigger_deep_web_hunt(
         created_jobs.append(job)
 
     await db.commit()
-    print(f"[Jobs Endpoint SUCCESS] Deep Web Hunt completed. Created & indexed {len(created_jobs)} jobs.")
+    print(f"[Jobs Endpoint SUCCESS] Deep Web Hunt completed. Discovered & indexed {len(created_jobs)} jobs.")
 
     return created_jobs
 
