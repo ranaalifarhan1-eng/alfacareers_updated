@@ -83,6 +83,11 @@ class CandidateProfileDetailResponse(BaseModel):
     skills: List[str] = []
     experience: List[Dict[str, Any]] = []
     education: List[Dict[str, Any]] = []
+    target_roles: List[str] = []
+    preferred_locations: List[str] = []
+    job_type: str = "Full-Time"
+    notice_period: str = "Immediate"
+    expected_salary: str = "Negotiable"
     master_cv_url: Optional[str] = None
     uploaded_cvs: List[CandidateCVResponse] = []
 
@@ -96,6 +101,11 @@ class CandidateProfileUpdateRequest(BaseModel):
     skills: Optional[List[str]] = None
     experience: Optional[List[Dict[str, Any]]] = None
     education: Optional[List[Dict[str, Any]]] = None
+    target_roles: Optional[List[str]] = None
+    preferred_locations: Optional[List[str]] = None
+    job_type: Optional[str] = None
+    notice_period: Optional[str] = None
+    expected_salary: Optional[str] = None
     master_cv_text: Optional[str] = None
 
 
@@ -166,7 +176,12 @@ async def register_user(
 
     if req.role == UserRole.CANDIDATE:
         full_name = req.full_name or req.email.split("@")[0].capitalize()
-        profile = CandidateProfile(user_id=user.id, full_name=full_name)
+        profile = CandidateProfile(
+            user_id=user.id,
+            full_name=full_name,
+            target_roles=["Performance Marketing Manager", "Digital Marketer"],
+            preferred_locations=["Dubai, UAE", "Lahore, Pakistan", "Remote"]
+        )
         db.add(profile)
     elif req.role == UserRole.EMPLOYER:
         company_name = req.company_name or "My Enterprise Company"
@@ -347,7 +362,9 @@ async def get_candidate_profile(
         cp = CandidateProfile(
             user_id=current_user.id,
             full_name=current_user.email.split("@")[0].capitalize(),
-            skills=["Google Ads", "Performance Marketing", "Python"]
+            skills=["Google Ads", "Performance Marketing", "Python"],
+            target_roles=["Performance Marketing Manager", "Digital Marketer"],
+            preferred_locations=["Dubai, UAE", "Lahore, Pakistan", "Remote"]
         )
         db.add(cp)
         await db.commit()
@@ -380,6 +397,12 @@ async def get_candidate_profile(
         for c in cvs
     ]
 
+    target_roles = getattr(cp, 'target_roles', None) or ["Performance Marketing Manager", "Digital Marketer"]
+    preferred_locations = getattr(cp, 'preferred_locations', None) or ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
+    job_type = getattr(cp, 'job_type', None) or "Full-Time"
+    notice_period = getattr(cp, 'notice_period', None) or "Immediate"
+    expected_salary = getattr(cp, 'expected_salary', None) or "Negotiable"
+
     return CandidateProfileDetailResponse(
         id=cp.id,
         user_id=cp.user_id,
@@ -393,6 +416,11 @@ async def get_candidate_profile(
         skills=clean_skills,
         experience=sanitized_exp,
         education=cp.education or [],
+        target_roles=target_roles,
+        preferred_locations=preferred_locations,
+        job_type=job_type,
+        notice_period=notice_period,
+        expected_salary=expected_salary,
         master_cv_url=cp.master_cv_url,
         uploaded_cvs=formatted_cvs
     )
@@ -433,6 +461,16 @@ async def update_candidate_profile(
         cp.experience = sanitized_exp
     if req.education is not None:
         cp.education = req.education
+    if req.target_roles is not None:
+        cp.target_roles = req.target_roles
+    if req.preferred_locations is not None:
+        cp.preferred_locations = req.preferred_locations
+    if req.job_type is not None:
+        cp.job_type = req.job_type
+    if req.notice_period is not None:
+        cp.notice_period = req.notice_period
+    if req.expected_salary is not None:
+        cp.expected_salary = req.expected_salary
     if req.master_cv_text is not None:
         cp.master_cv_url = req.master_cv_text
 
@@ -450,6 +488,12 @@ async def update_candidate_profile(
         ) for c in cvs
     ]
 
+    target_roles = getattr(cp, 'target_roles', None) or ["Performance Marketing Manager", "Digital Marketer"]
+    preferred_locations = getattr(cp, 'preferred_locations', None) or ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
+    job_type = getattr(cp, 'job_type', None) or "Full-Time"
+    notice_period = getattr(cp, 'notice_period', None) or "Immediate"
+    expected_salary = getattr(cp, 'expected_salary', None) or "Negotiable"
+
     return CandidateProfileDetailResponse(
         id=cp.id,
         user_id=cp.user_id,
@@ -463,6 +507,11 @@ async def update_candidate_profile(
         skills=cp.skills or [],
         experience=cp.experience or [],
         education=cp.education or [],
+        target_roles=target_roles,
+        preferred_locations=preferred_locations,
+        job_type=job_type,
+        notice_period=notice_period,
+        expected_salary=expected_salary,
         master_cv_url=cp.master_cv_url,
         uploaded_cvs=formatted_cvs
     )
@@ -559,6 +608,11 @@ async def apply_cv_parsed_to_profile(
         cp.experience = sanitized_exp
     if parsed.get("education"):
         cp.education = parsed["education"]
+    if parsed.get("target_roles"):
+        cp.target_roles = parsed["target_roles"]
+    if parsed.get("preferred_locations"):
+        cp.preferred_locations = parsed["preferred_locations"]
+
     if cv_record.raw_text:
         cp.master_cv_url = cv_record.raw_text
 
@@ -576,6 +630,12 @@ async def apply_cv_parsed_to_profile(
         ) for c in cvs
     ]
 
+    target_roles = getattr(cp, 'target_roles', None) or ["Performance Marketing Manager", "Digital Marketer"]
+    preferred_locations = getattr(cp, 'preferred_locations', None) or ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
+    job_type = getattr(cp, 'job_type', None) or "Full-Time"
+    notice_period = getattr(cp, 'notice_period', None) or "Immediate"
+    expected_salary = getattr(cp, 'expected_salary', None) or "Negotiable"
+
     return CandidateProfileDetailResponse(
         id=cp.id,
         user_id=cp.user_id,
@@ -589,6 +649,11 @@ async def apply_cv_parsed_to_profile(
         skills=cp.skills or [],
         experience=cp.experience or [],
         education=cp.education or [],
+        target_roles=target_roles,
+        preferred_locations=preferred_locations,
+        job_type=job_type,
+        notice_period=notice_period,
+        expected_salary=expected_salary,
         master_cv_url=cp.master_cv_url,
         uploaded_cvs=formatted_cvs
     )

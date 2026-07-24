@@ -1,6 +1,7 @@
 import os
 import socket
 import logging
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from app.core.config import settings
@@ -52,10 +53,23 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def init_db():
-    """Auto-create tables if running in SQLite fallback mode."""
+    """Auto-create tables & execute seamless SQLite column migrations."""
     if "sqlite" in db_url:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+            columns_to_add = [
+                ("target_roles", "JSON DEFAULT '[]'"),
+                ("preferred_locations", "JSON DEFAULT '[]'"),
+                ("job_type", "VARCHAR DEFAULT 'Full-Time'"),
+                ("notice_period", "VARCHAR DEFAULT 'Immediate'"),
+                ("expected_salary", "VARCHAR DEFAULT 'Negotiable'")
+            ]
+            for col_name, col_type in columns_to_add:
+                try:
+                    await conn.execute(text(f"ALTER TABLE candidate_profiles ADD COLUMN {col_name} {col_type}"))
+                except Exception:
+                    pass  # Column already exists
 
 
 async def get_db():

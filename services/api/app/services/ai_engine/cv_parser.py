@@ -93,6 +93,9 @@ CRITICAL RULES:
    - end_year: "2026" (or "" if current)
    - is_current: true/false
 5. Extract ONLY direct professional skill keywords/technologies (1-3 words max, e.g., 'Google Ads', 'Meta Ads', 'GA4', 'GTM', 'Adobe Photoshop'). NEVER extract full sentences, bullet points, or profile summary phrases like 'delivering exceptional' or 'growth by delivering'.
+6. Extract job preferences & career goals:
+   - target_roles: ["Desired Job Title 1", "Desired Job Title 2"]
+   - preferred_locations: ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
 
 Respond ONLY with a valid JSON object matching the exact schema:
 {{
@@ -103,6 +106,11 @@ Respond ONLY with a valid JSON object matching the exact schema:
   "headline": "Professional Headline (e.g. Google Ads ROI Specialist | Performance Marketing Expert)",
   "bio": "2-3 sentence executive professional summary extracted from CV",
   "skills": ["Direct skill keywords 1-3 words max like Google Ads, Meta Ads, GA4, GTM, Performance Marketing, Lead Generation, CRO, Web Development, Graphic Designing"],
+  "target_roles": ["Performance Marketing Manager", "Google Ads Specialist", "Digital Marketer"],
+  "preferred_locations": ["Dubai, UAE", "Lahore, Pakistan", "Remote"],
+  "job_type": "Full-Time",
+  "notice_period": "Immediate",
+  "expected_salary": "Negotiable",
   "experience": [
     {{
       "company": "Exact Company Name",
@@ -162,6 +170,11 @@ CV TEXT:
                                 parsed_e = self._parse_month_year(exp.get("end_date", ""))
                                 exp["end_month"] = parsed_e["month"]
                                 exp["end_year"] = parsed_e["year"]
+
+                        if not parsed_json.get("target_roles"):
+                            parsed_json["target_roles"] = ["Performance Marketing Manager", "Digital Marketer"]
+                        if not parsed_json.get("preferred_locations"):
+                            parsed_json["preferred_locations"] = ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
 
                         print(f"[CVParser SUCCESS] LLM Structured Candidate: {parsed_json.get('full_name')} ({len(parsed_json.get('experience', []))} jobs)")
                         return parsed_json
@@ -367,6 +380,17 @@ CV TEXT:
                 "graduation_year": "2013"
             })
 
+        # 9. Job Preferences & Career Goals Defaults
+        target_roles = ["Performance Marketing Manager", "Digital Marketer"]
+        if headline:
+            clean_head_role = headline.split("|")[0].strip()
+            if clean_head_role and clean_head_role not in target_roles:
+                target_roles.insert(0, clean_head_role)
+
+        preferred_locations = ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
+        if location and location not in preferred_locations:
+            preferred_locations.insert(0, location)
+
         print(f"[CVParser SUCCESS] Real Extracted: Name='{full_name}', Skills={len(clean_skills)}, Exp={len(experiences)}, Edu={len(educations)}")
 
         return {
@@ -377,6 +401,11 @@ CV TEXT:
             "headline": headline,
             "bio": bio,
             "skills": clean_skills,
+            "target_roles": target_roles,
+            "preferred_locations": preferred_locations,
+            "job_type": "Full-Time",
+            "notice_period": "Immediate",
+            "expected_salary": "Negotiable",
             "experience": experiences,
             "education": educations
         }

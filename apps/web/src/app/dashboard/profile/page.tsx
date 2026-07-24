@@ -24,7 +24,10 @@ import {
   GraduationCap,
   FolderOpen,
   ArrowRight,
-  Check
+  Check,
+  Target,
+  Clock,
+  DollarSign
 } from 'lucide-react';
 
 interface WorkExperience {
@@ -76,6 +79,15 @@ export default function ProfilePage() {
   const [experiences, setExperiences] = useState<WorkExperience[]>([]);
   const [educations, setEducations] = useState<EducationItem[]>([]);
   const [uploadedCvs, setUploadedCvs] = useState<UploadedCV[]>([]);
+
+  // Section 5: Job Preferences & Career Goals States
+  const [targetRoles, setTargetRoles] = useState<string[]>([]);
+  const [targetRoleInput, setTargetRoleInput] = useState('');
+  const [preferredLocations, setPreferredLocations] = useState<string[]>([]);
+  const [prefLocationInput, setPrefLocationInput] = useState('');
+  const [jobType, setJobType] = useState('Full-Time');
+  const [noticePeriod, setNoticePeriod] = useState('Immediate');
+  const [expectedSalary, setExpectedSalary] = useState('Negotiable');
   
   const [masterCvText, setMasterCvText] = useState('');
 
@@ -144,6 +156,11 @@ export default function ProfilePage() {
           setSkills(Array.isArray(data.skills) ? data.skills : []);
           setExperiences(Array.isArray(data.experience) ? data.experience : []);
           setEducations(Array.isArray(data.education) ? data.education : []);
+          setTargetRoles(Array.isArray(data.target_roles) ? data.target_roles : ['Performance Marketing Manager', 'Digital Marketer']);
+          setPreferredLocations(Array.isArray(data.preferred_locations) ? data.preferred_locations : ['Dubai, UAE', 'Lahore, Pakistan', 'Remote']);
+          setJobType(data.job_type || 'Full-Time');
+          setNoticePeriod(data.notice_period || 'Immediate');
+          setExpectedSalary(data.expected_salary || 'Negotiable');
           setMasterCvText(data.master_cv_url || '');
           setUploadedCvs(Array.isArray(data.uploaded_cvs) ? data.uploaded_cvs : []);
         }
@@ -255,6 +272,11 @@ export default function ProfilePage() {
       setSkills(Array.isArray(updated.skills) ? updated.skills : []);
       setExperiences(Array.isArray(updated.experience) ? updated.experience : []);
       setEducations(Array.isArray(updated.education) ? updated.education : []);
+      setTargetRoles(Array.isArray(updated.target_roles) ? updated.target_roles : []);
+      setPreferredLocations(Array.isArray(updated.preferred_locations) ? updated.preferred_locations : []);
+      setJobType(updated.job_type || 'Full-Time');
+      setNoticePeriod(updated.notice_period || 'Immediate');
+      setExpectedSalary(updated.expected_salary || 'Negotiable');
       setMasterCvText(updated.master_cv_url || '');
 
       setMessage('Profile fields successfully auto-filled from uploaded CV!');
@@ -294,6 +316,32 @@ export default function ProfilePage() {
 
   const handleRemoveSkill = (skillToRemove: string) => {
     setSkills(skills.filter(s => s !== skillToRemove));
+  };
+
+  // Target Roles Handlers
+  const handleAddTargetRole = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (targetRoleInput.trim() && !targetRoles.includes(targetRoleInput.trim())) {
+      setTargetRoles([...targetRoles, targetRoleInput.trim()]);
+      setTargetRoleInput('');
+    }
+  };
+
+  const handleRemoveTargetRole = (roleToRemove: string) => {
+    setTargetRoles(targetRoles.filter(r => r !== roleToRemove));
+  };
+
+  // Preferred Locations Handlers
+  const handleAddPrefLocation = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (prefLocationInput.trim() && !preferredLocations.includes(prefLocationInput.trim())) {
+      setPreferredLocations([...preferredLocations, prefLocationInput.trim()]);
+      setPrefLocationInput('');
+    }
+  };
+
+  const handleRemovePrefLocation = (locToRemove: string) => {
+    setPreferredLocations(preferredLocations.filter(l => l !== locToRemove));
   };
 
   // Work Experience Handlers
@@ -368,6 +416,11 @@ export default function ProfilePage() {
           skills,
           experience: experiences,
           education: educations,
+          target_roles: targetRoles,
+          preferred_locations: preferredLocations,
+          job_type: jobType,
+          notice_period: noticePeriod,
+          expected_salary: expectedSalary,
           master_cv_text: masterCvText
         })
       });
@@ -377,7 +430,7 @@ export default function ProfilePage() {
       }
 
       await resp.json();
-      setMessage('Candidate Profile & Master CV successfully updated and indexed!');
+      setMessage('Candidate Profile & Job Preferences successfully updated and indexed!');
     } catch (err: any) {
       setError(err.message || 'Error saving profile.');
     } finally {
@@ -402,13 +455,13 @@ export default function ProfilePage() {
       <div>
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold mb-2 border border-blue-200">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Multi-CV Manager & Layout-Aware AI Parsing Engine</span>
+          <span>Multi-CV Manager & Precision AI Job Matching Engine</span>
         </div>
         <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
           My Profile & Saved CV Gallery
         </h1>
         <p className="text-xs text-slate-500 mt-1">
-          Upload multi-column CVs with layout-aware pdfplumber parsing, manage saved resumes, and auto-fill your profile
+          Upload multi-column CVs with layout-aware parsing, manage saved resumes, and set career goals for precision AI job matching
         </p>
       </div>
 
@@ -886,6 +939,151 @@ export default function ProfilePage() {
           )}
         </div>
 
+        {/* Section 5: Job Preferences & Career Goals */}
+        <div className="glass-card p-6 rounded-2xl border border-slate-200">
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <Target className="w-4 h-4 text-blue-600" />
+              <span>5. Job Preferences & Career Goals</span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Precision AI job matching criteria used to rank hidden jobs and automated applications
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            {/* Target Job Titles Tag Manager */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Target Job Titles ({targetRoles.length})
+              </label>
+              <div className="flex items-center space-x-2 mb-3">
+                <input
+                  type="text"
+                  value={targetRoleInput}
+                  onChange={(e) => setTargetRoleInput(e.target.value)}
+                  placeholder="Add target role (e.g. Performance Marketing Manager, Google Ads Specialist)"
+                  className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTargetRole}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition flex items-center space-x-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Role</span>
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {targetRoles.map((role) => (
+                  <span
+                    key={role}
+                    className="px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold border border-indigo-200/60 flex items-center space-x-1.5"
+                  >
+                    <span>{role}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTargetRole(role)}
+                      className="hover:text-red-600 transition"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Preferred Locations Tag Manager */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Preferred Locations ({preferredLocations.length})
+              </label>
+              <div className="flex items-center space-x-2 mb-3">
+                <input
+                  type="text"
+                  value={prefLocationInput}
+                  onChange={(e) => setPrefLocationInput(e.target.value)}
+                  placeholder="Add target location (e.g. Dubai, UAE, Lahore, Pakistan, Remote)"
+                  className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddPrefLocation}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition flex items-center space-x-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Location</span>
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {preferredLocations.map((loc) => (
+                  <span
+                    key={loc}
+                    className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200/60 flex items-center space-x-1.5"
+                  >
+                    <span>{loc}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePrefLocation(loc)}
+                      className="hover:text-red-600 transition"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Selectors Grid: Job Type, Notice Period, Expected Salary */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Job Type Preference
+                </label>
+                <select
+                  value={jobType}
+                  onChange={(e) => setJobType(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                >
+                  <option value="Full-Time">Full-Time</option>
+                  <option value="Hybrid">Hybrid</option>
+                  <option value="Remote Only">Remote Only</option>
+                  <option value="Contract">Contract</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Notice Period
+                </label>
+                <select
+                  value={noticePeriod}
+                  onChange={(e) => setNoticePeriod(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                >
+                  <option value="Immediate">Immediate / Available Now</option>
+                  <option value="15 Days">15 Days</option>
+                  <option value="1 Month">1 Month</option>
+                  <option value="2 Months">2 Months</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Expected Salary Range
+                </label>
+                <input
+                  type="text"
+                  value={expectedSalary}
+                  onChange={(e) => setExpectedSalary(e.target.value)}
+                  placeholder="e.g. AED 10,000 - 15,000 / month"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Save Button */}
         <div className="flex justify-end">
           <button
@@ -925,6 +1123,7 @@ export default function ProfilePage() {
               <p><strong>Headline:</strong> {pendingUploadData.parsed_data?.headline || 'N/A'}</p>
               <p><strong>Skills Extracted:</strong> {pendingUploadData.parsed_data?.skills?.length || 0} skills</p>
               <p><strong>Experience Entries:</strong> {pendingUploadData.parsed_data?.experience?.length || 0} positions</p>
+              <p><strong>Target Roles:</strong> {pendingUploadData.parsed_data?.target_roles?.join(', ') || 'N/A'}</p>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
