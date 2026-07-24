@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   User, 
   Mail, 
@@ -14,10 +14,35 @@ import {
   AlertCircle, 
   Save, 
   Sparkles,
-  Award
+  Award,
+  Upload,
+  Building2,
+  Calendar,
+  Trash2,
+  RefreshCw,
+  GraduationCap
 } from 'lucide-react';
 
+interface WorkExperience {
+  company: string;
+  job_title: string;
+  location?: string;
+  start_date?: string;
+  end_date?: string;
+  is_current?: boolean;
+  description?: string;
+}
+
+interface EducationItem {
+  degree: string;
+  institution: string;
+  graduation_year?: string;
+}
+
 export default function ProfilePage() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Form States
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [location, setLocation] = useState('');
@@ -26,10 +51,15 @@ export default function ProfilePage() {
   
   const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState('');
+
+  const [experiences, setExperiences] = useState<WorkExperience[]>([]);
+  const [educations, setEducations] = useState<EducationItem[]>([]);
   
   const [masterCvText, setMasterCvText] = useState('');
 
+  // Status States
   const [loading, setLoading] = useState(true);
+  const [parsingCv, setParsingCv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +84,8 @@ export default function ProfilePage() {
           setHeadline(data.headline || 'Senior Corporate Specialist');
           setBio(data.bio || '');
           setSkills(data.skills || []);
+          setExperiences(data.experience || []);
+          setEducations(data.education || []);
           setMasterCvText(data.master_cv_url || '');
         }
       } catch (err) {
@@ -66,6 +98,53 @@ export default function ProfilePage() {
     fetchProfile();
   }, []);
 
+  // Handle Drag & Drop / File Select CV Upload
+  const handleCvFileUpload = async (file: File) => {
+    if (!file) return;
+
+    setError(null);
+    setMessage(null);
+    setParsingCv(true);
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const resp = await fetch(`${backendUrl}/api/v1/auth/profile/upload-cv`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+
+      if (!resp.ok) {
+        throw new Error('Failed to parse uploaded CV file.');
+      }
+
+      const data = await resp.json();
+      
+      // Auto-populate all profile fields
+      setFullName(data.full_name || fullName);
+      setPhone(data.phone || phone);
+      setLocation(data.location || location);
+      setHeadline(data.headline || headline);
+      setBio(data.bio || bio);
+      setSkills(data.skills || skills);
+      setExperiences(data.experience || experiences);
+      setEducations(data.education || educations);
+      setMasterCvText(data.master_cv_url || masterCvText);
+
+      setMessage(`AI successfully read & structured ${file.name}! Profile fields auto-filled.`);
+    } catch (err: any) {
+      setError(err.message || 'Error uploading CV.');
+    } finally {
+      setParsingCv(false);
+    }
+  };
+
+  // Skills Manager Handlers
   const handleAddSkill = (e: React.FormEvent) => {
     e.preventDefault();
     if (skillInput.trim() && !skills.includes(skillInput.trim())) {
@@ -78,6 +157,51 @@ export default function ProfilePage() {
     setSkills(skills.filter(s => s !== skillToRemove));
   };
 
+  // Work Experience Manager Handlers
+  const handleAddExperience = () => {
+    setExperiences([
+      ...experiences,
+      {
+        company: 'Enterprise Company',
+        job_title: 'Senior Specialist',
+        location: 'Lahore, Pakistan',
+        start_date: '2022',
+        end_date: 'Present',
+        is_current: true,
+        description: 'Key deliverables and team leadership responsibilities...'
+      }
+    ]);
+  };
+
+  const handleUpdateExperience = (index: number, field: keyof WorkExperience, value: any) => {
+    const updated = [...experiences];
+    updated[index] = { ...updated[index], [field]: value };
+    setExperiences(updated);
+  };
+
+  const handleRemoveExperience = (index: number) => {
+    setExperiences(experiences.filter((_, i) => i !== index));
+  };
+
+  // Education Manager Handlers
+  const handleAddEducation = () => {
+    setEducations([
+      ...educations,
+      { degree: 'Bachelor of Science', institution: 'University', graduation_year: '2020' }
+    ]);
+  };
+
+  const handleUpdateEducation = (index: number, field: keyof EducationItem, value: any) => {
+    const updated = [...educations];
+    updated[index] = { ...updated[index], [field]: value };
+    setEducations(updated);
+  };
+
+  const handleRemoveEducation = (index: number) => {
+    setEducations(educations.filter((_, i) => i !== index));
+  };
+
+  // Save Profile Handler
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -101,6 +225,8 @@ export default function ProfilePage() {
           headline,
           bio,
           skills,
+          experience: experiences,
+          education: educations,
           master_cv_text: masterCvText
         })
       });
@@ -109,7 +235,7 @@ export default function ProfilePage() {
         throw new Error('Failed to update candidate profile.');
       }
 
-      const updated = await resp.json();
+      await resp.json();
       setMessage('Candidate Profile & Master CV successfully updated and indexed!');
     } catch (err: any) {
       setError(err.message || 'Error saving profile.');
@@ -130,42 +256,80 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="p-8 max-w-5xl w-full mx-auto">
+    <div className="p-8 max-w-5xl w-full mx-auto space-y-8">
       {/* Header Title */}
-      <div className="mb-8">
+      <div>
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold mb-2 border border-blue-200">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Master Candidate Co-Pilot Profile</span>
+          <span>Automated AI Candidate Profile & Experience Builder</span>
         </div>
         <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-          My Profile & Master CV
+          My Profile & Experience
         </h1>
         <p className="text-xs text-slate-500 mt-1">
-          Customize your skills, headline, and CV content for vector matching & ATS compiler engines
+          Upload your CV for instant AI parsing, manage work history, and fine-tune your ATS resume content
         </p>
       </div>
 
       {/* Notifications */}
       {message && (
-        <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center space-x-2">
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center space-x-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{message}</span>
         </div>
       )}
 
       {error && (
-        <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center space-x-2">
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center space-x-2">
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
           <span>{error}</span>
         </div>
       )}
+
+      {/* Top Drag & Drop CV Upload Box */}
+      <div 
+        onClick={() => fileInputRef.current?.click()}
+        className="glass-card p-8 rounded-3xl border-2 border-dashed border-blue-300 bg-gradient-to-r from-blue-50/50 via-white to-slate-50 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/30 transition relative overflow-hidden"
+      >
+        <input 
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,.txt"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0]) {
+              handleCvFileUpload(e.target.files[0]);
+            }
+          }}
+        />
+
+        {parsingCv ? (
+          <div className="flex flex-col items-center justify-center py-4">
+            <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mb-3" />
+            <p className="text-sm font-bold text-slate-900">AI is reading & structuring your CV...</p>
+            <p className="text-xs text-slate-500 mt-1">Extracting experience, skills, and contact info via Ollama Llama 3.1</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-2">
+            <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mb-3 shadow-inner">
+              <Upload className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900">
+              Drag & Drop your CV / Resume here or <span className="text-blue-600 underline">Browse File</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Supports PDF, DOCX, or TXT • Instant AI auto-fill for all sections below
+            </p>
+          </div>
+        )}
+      </div>
 
       <form onSubmit={handleSaveProfile} className="space-y-8">
         {/* Section 1: Basic Information */}
         <div className="glass-card p-6 rounded-2xl border border-slate-200">
           <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center space-x-2">
             <User className="w-4 h-4 text-blue-600" />
-            <span>1. Basic Personal Information</span>
+            <span>1. Personal & Contact Information</span>
           </h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -237,11 +401,132 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Section 2: Interactive Skills Tag Box */}
+        {/* Section 2: Interactive Work Experience Manager */}
+        <div className="glass-card p-6 rounded-2xl border border-slate-200">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                <Briefcase className="w-4 h-4 text-blue-600" />
+                <span>2. Work Experience History ({experiences.length})</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Structured career history used by ReportLab ATS Resume Compiler
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddExperience}
+              className="px-3.5 py-2 bg-blue-50 text-blue-700 border border-blue-200/80 hover:bg-blue-100 rounded-xl text-xs font-semibold transition flex items-center space-x-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Position</span>
+            </button>
+          </div>
+
+          {experiences.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-xl">
+              No work experience added yet. Click "Add Position" or upload your CV above.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {experiences.map((exp, idx) => (
+                <div key={idx} className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 space-y-3 relative">
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveExperience(idx)}
+                    className="absolute top-3 right-3 text-slate-400 hover:text-red-600 transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pr-8">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Job Title
+                      </label>
+                      <input
+                        type="text"
+                        value={exp.job_title}
+                        onChange={(e) => handleUpdateExperience(idx, 'job_title', e.target.value)}
+                        placeholder="e.g. Senior Operations Lead"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Company Name
+                      </label>
+                      <input
+                        type="text"
+                        value={exp.company}
+                        onChange={(e) => handleUpdateExperience(idx, 'company', e.target.value)}
+                        placeholder="e.g. Engro Corporation"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Dates (Start – End)
+                      </label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="text"
+                          value={exp.start_date || ''}
+                          onChange={(e) => handleUpdateExperience(idx, 'start_date', e.target.value)}
+                          placeholder="2022"
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
+                        />
+                        <span className="text-slate-400 text-xs">–</span>
+                        <input
+                          type="text"
+                          value={exp.end_date || ''}
+                          onChange={(e) => handleUpdateExperience(idx, 'end_date', e.target.value)}
+                          placeholder="Present"
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Location
+                      </label>
+                      <input
+                        type="text"
+                        value={exp.location || ''}
+                        onChange={(e) => handleUpdateExperience(idx, 'location', e.target.value)}
+                        placeholder="Lahore, Pakistan"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Key Deliverables & Responsibilities
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={exp.description || ''}
+                      onChange={(e) => handleUpdateExperience(idx, 'description', e.target.value)}
+                      placeholder="Bullet points or summary of accomplishments..."
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Section 3: Interactive Skills Tag Box */}
         <div className="glass-card p-6 rounded-2xl border border-slate-200">
           <h2 className="text-base font-bold text-slate-900 mb-2 flex items-center space-x-2">
             <Award className="w-4 h-4 text-blue-600" />
-            <span>2. Core Competencies & Skills</span>
+            <span>3. Core Competencies & Skills ({skills.length})</span>
           </h2>
           <p className="text-xs text-slate-500 mb-4">
             Add key skills used by vector matching engines to calculate job match scores
@@ -284,21 +569,86 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Section 3: Master CV Text Container */}
+        {/* Section 4: Education History Manager */}
+        <div className="glass-card p-6 rounded-2xl border border-slate-200">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                <GraduationCap className="w-4 h-4 text-blue-600" />
+                <span>4. Education History ({educations.length})</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">Academic degrees and certifications</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddEducation}
+              className="px-3.5 py-2 bg-blue-50 text-blue-700 border border-blue-200/80 hover:bg-blue-100 rounded-xl text-xs font-semibold transition flex items-center space-x-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Degree</span>
+            </button>
+          </div>
+
+          {educations.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-xl">
+              No education history added yet.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {educations.map((edu, idx) => (
+                <div key={idx} className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 flex items-center justify-between gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1">
+                    <input
+                      type="text"
+                      value={edu.degree}
+                      onChange={(e) => handleUpdateEducation(idx, 'degree', e.target.value)}
+                      placeholder="Degree (e.g. BS Computer Science)"
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900"
+                    />
+                    <input
+                      type="text"
+                      value={edu.institution}
+                      onChange={(e) => handleUpdateEducation(idx, 'institution', e.target.value)}
+                      placeholder="University / Institution"
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900"
+                    />
+                    <input
+                      type="text"
+                      value={edu.graduation_year || ''}
+                      onChange={(e) => handleUpdateEducation(idx, 'graduation_year', e.target.value)}
+                      placeholder="Year (e.g. 2021)"
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveEducation(idx)}
+                    className="text-slate-400 hover:text-red-600 transition p-1"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Section 5: Master CV Text Container */}
         <div className="glass-card p-6 rounded-2xl border border-slate-200">
           <h2 className="text-base font-bold text-slate-900 mb-2 flex items-center space-x-2">
             <FileText className="w-4 h-4 text-blue-600" />
-            <span>3. Master CV / Experience Text Container</span>
+            <span>5. Raw Master CV Text (AI Extracted)</span>
           </h2>
           <p className="text-xs text-slate-500 mb-4">
-            Paste your raw resume text or career history. ReportLab ATS Compiler uses this text to generate tailored single-page PDF resumes.
+            Raw extracted text from your uploaded CV file
           </p>
 
           <textarea
-            rows={8}
+            rows={5}
             value={masterCvText}
             onChange={(e) => setMasterCvText(e.target.value)}
-            placeholder="Paste raw CV text or detailed experience summary here..."
+            placeholder="Raw CV text will appear here automatically when you upload a file above..."
             className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 leading-relaxed"
           />
         </div>

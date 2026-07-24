@@ -1,7 +1,7 @@
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any, List, Dict
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,10 +12,12 @@ from app.db.models import User, UserRole, CandidateProfile, EmployerProfile
 from app.core.security import get_password_hash, verify_password, create_access_token, decode_access_token
 from app.core.config import settings
 from app.core.email import send_welcome_email
+from app.services.ai_engine.cv_parser import AICVParserService
 
 router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+cv_parser = AICVParserService()
 
 
 # --- Pydantic Schemas ---
@@ -118,7 +120,6 @@ async def register_user(
     db: AsyncSession = Depends(get_db)
 ):
     """Register a new candidate, employer, or admin user with 6-Digit OTP generation."""
-    # Check existing email
     existing = await db.execute(select(User).where(User.email == req.email))
     if existing.scalars().first():
         raise HTTPException(status_code=400, detail="Email is already registered")
@@ -127,7 +128,6 @@ async def register_user(
     otp_code = generate_otp_code()
     otp_expires = datetime.now(timezone.utc) + timedelta(minutes=10)
 
-    # Prominent ASCII Terminal Logging for Local Dev
     print("\n========================================================")
     print(f"  [LOCAL DEV OTP] VERIFICATION CODE FOR {req.email}: {otp_code}")
     print("========================================================\n")
@@ -147,7 +147,6 @@ async def register_user(
     full_name = None
     company_name = None
 
-    # Auto-create role-specific profile
     if req.role == UserRole.CANDIDATE:
         full_name = req.full_name or req.email.split("@")[0].capitalize()
         profile = CandidateProfile(user_id=user.id, full_name=full_name)
@@ -160,7 +159,6 @@ async def register_user(
     await db.commit()
     await db.refresh(user)
 
-    # Safely schedule background email dispatch with OTP code
     recipient_display_name = full_name or company_name or user.email
     background_tasks.add_task(send_welcome_email, user.email, recipient_display_name, otp_code)
 
@@ -392,6 +390,73 @@ async def update_candidate_profile(
     await db.refresh(cp)
 
     print(f"\n[Profile SUCCESS] Updated profile for candidate: {cp.full_name} ({current_user.email})")
+
+    return CandidateProfileDetailResponse(
+        id=cp.id,
+        user_id=cp.user_id,
+        email=current_user.email,
+        role=current_user.role,
+        full_name=cp.full_name,
+        phone=cp.phone,
+        location=cp.location,
+        headline=cp.headline,
+        bio=cp.bio,
+        skills=cp.skills or [],
+        experience=cp.experience or [],
+        education=cp.education or [],
+        master_cv_url=cp.master_cv_url
+    )
+
+
+@router.post("/profile/upload-cv", response_model=CandidateProfileDetailResponse)
+async def upload_and_parse_cv(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Automated AI CV Upload & Parsing:
+    Extracts text from PDF/DOCX file, structures JSON via Ollama LLM, updates DB, and returns populated candidate profile.
+    """
+    print(f"\n[CV Upload] Received file: {file.filename} ({file.content_type}) for user: {current_user.email}")
+    file_bytes = await file.read()
+
+    # 1. Extract raw text from file
+    raw_text = cv_parser.extract_text_from_file_bytes(file_bytes, file.filename)
+
+    # 2. Parse text with Ollama Llama 3.1 LLM
+    parsed = await cv_parser.parse_cv_text_with_llm(raw_text)
+
+    # 3. Update candidate database record
+    res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == current_user.id))
+    cp = res.scalars().first()
+
+    if not cp:
+        cp = CandidateProfile(user_id=current_user.id, full_name=parsed.get("full_name", current_user.email.split("@")[0].capitalize()))
+        db.add(cp)
+
+    cp.full_name = parsed.get("full_name") or cp.full_name
+    if parsed.get("phone"):
+        cp.phone = parsed.get("phone")
+    if parsed.get("location"):
+        cp.location = parsed.get("location")
+    if parsed.get("headline"):
+        cp.headline = parsed.get("headline")
+    if parsed.get("bio"):
+        cp.bio = parsed.get("bio")
+    if parsed.get("skills"):
+        cp.skills = parsed.get("skills")
+    if parsed.get("experience"):
+        cp.experience = parsed.get("experience")
+    if parsed.get("education"):
+        cp.education = parsed.get("education")
+    
+    cp.master_cv_url = raw_text[:4000]
+
+    await db.commit()
+    await db.refresh(cp)
+
+    print(f"[CV Upload SUCCESS] Auto-populated profile for: {cp.full_name} ({len(cp.skills or [])} skills, {len(cp.experience or [])} experiences)")
 
     return CandidateProfileDetailResponse(
         id=cp.id,
