@@ -68,7 +68,7 @@ class AICVParserService:
         return raw_clean
 
     def calculate_total_experience_years(self, experiences: List[Dict[str, Any]]) -> str:
-        """Calculate cumulative work experience in years from experience objects."""
+        """Calculate cumulative work experience in years accurately across experience objects."""
         if not experiences:
             return "0.0 Years"
 
@@ -77,22 +77,41 @@ class AICVParserService:
         now_month = 7
 
         months_num = {
-            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
+            "jan": 1, "january": 1,
+            "feb": 2, "february": 2,
+            "mar": 3, "march": 3,
+            "apr": 4, "april": 4,
+            "may": 5,
+            "jun": 6, "june": 6,
+            "jul": 7, "july": 7,
+            "aug": 8, "august": 8,
+            "sep": 9, "sept": 9, "september": 9,
+            "oct": 10, "october": 10,
+            "nov": 11, "november": 11,
+            "dec": 12, "december": 12
         }
 
         for exp in experiences:
-            s_month = months_num.get((exp.get("start_month") or "jan").lower(), 1)
-            s_year = int(exp.get("start_year") or 2023) if str(exp.get("start_year") or "").isdigit() else 2023
+            s_m_str = str(exp.get("start_month") or "Jan").strip().lower()
+            s_month = months_num.get(s_m_str, 1)
 
-            if exp.get("is_current") or not exp.get("end_year"):
+            s_y_str = str(exp.get("start_year") or "2023").strip()
+            s_year_match = re.search(r"\b(19\d\d|20\d\d)\b", s_y_str)
+            s_year = int(s_year_match.group(0)) if s_year_match else 2023
+
+            is_active = exp.get("is_current")
+            end_y_val = str(exp.get("end_year") or "").strip().lower()
+            end_m_val = str(exp.get("end_month") or "").strip().lower()
+
+            if is_active or not end_y_val or end_y_val in ["till", "present", "current", "now"]:
                 e_month = now_month
                 e_year = now_year
             else:
-                e_month = months_num.get((exp.get("end_month") or "dec").lower(), 12)
-                e_year = int(exp.get("end_year") or 2026) if str(exp.get("end_year") or "").isdigit() else 2026
+                e_month = months_num.get(end_m_val, 12)
+                e_year_match = re.search(r"\b(19\d\d|20\d\d)\b", end_y_val)
+                e_year = int(e_year_match.group(0)) if e_year_match else 2026
 
-            diff = (e_year - s_year) * 12 + (e_month - s_month)
+            diff = (e_year - s_year) * 12 + (e_month - s_month) + 1  # Inclusive months count
             if diff > 0:
                 total_months += diff
 
@@ -100,6 +119,27 @@ class AICVParserService:
         if years <= 0:
             return "1.0 Year"
         return f"{years} Years"
+
+    def _sanitize_headline_role(self, headline: str) -> str:
+        """Strip pipe-separated buzzword noise like Lead Generation, ROI Growth, Dubai Market Experience, Funnel Optimization."""
+        if not headline or not isinstance(headline, str):
+            return "Performance Marketing Manager"
+
+        parts = headline.split("|")
+        clean_parts = []
+        for p in parts:
+            p_strip = p.strip()
+            if any(r in p_strip.lower() for r in ["manager", "specialist", "marketer", "lead", "developer", "engineer", "director", "consultant", "analyst", "designer"]):
+                if not any(b in p_strip.lower() for b in ["dubai market experience", "roi growth", "funnel optimization", "lead generation"]):
+                    clean_parts.append(p_strip)
+
+        if clean_parts:
+            return " / ".join(clean_parts[:2])
+        
+        first_part = parts[0].strip()
+        if not any(b in first_part.lower() for b in ["dubai market experience", "roi growth", "funnel optimization"]):
+            return first_part
+        return "Performance Marketing Manager"
 
     async def generate_ai_executive_summary(
         self,
@@ -109,20 +149,26 @@ class AICVParserService:
         experiences: List[Dict[str, Any]],
         target_roles: List[str]
     ) -> str:
-        """Generate a recruiter-tailored 2-3 sentence AI Executive Summary via Ollama Llama 3.1."""
+        """Generate a clean, recruiter-tailored 2-sentence AI Executive Summary via Ollama Llama 3.1."""
+        clean_role = self._sanitize_headline_role(headline)
         exp_years = self.calculate_total_experience_years(experiences)
-        skills_str = ", ".join(skills[:8]) if skills else "Performance Marketing, Strategy, Growth"
-        roles_str = ", ".join(target_roles[:3]) if target_roles else headline
+        skills_str = ", ".join(skills[:8]) if skills else "Performance Marketing, Google Ads, Meta Ads, Strategy"
+        roles_str = ", ".join(target_roles[:3]) if target_roles else clean_role
 
         prompt = f"""
-Write a high-impact, professional 2-sentence executive summary tailored for recruiters about:
+Write a clean, professional 2-sentence executive summary paragraph tailored for recruiters.
+
 Candidate: {full_name}
-Headline: {headline}
+Role: {clean_role}
 Total Experience: {exp_years}
-Key Skills: {skills_str}
+Core Skills: {skills_str}
 Target Roles: {roles_str}
 
-Respond ONLY with the 2-sentence executive summary text. Do NOT include quotes, intros, or JSON wrappers.
+CRITICAL RULES:
+- Start DIRECTLY with the candidate's core role and experience (e.g., "{full_name} is a {clean_role} with {exp_years} of hands-on experience in...").
+- Do NOT include filler intros like "Here is a summary:" or "Summary:".
+- Do NOT include buzzwords like "Dubai Market Experience" or "Funnel Optimization".
+- Respond ONLY with the clean 2-sentence executive summary text.
 """
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
@@ -137,7 +183,7 @@ Respond ONLY with the 2-sentence executive summary text. Do NOT include quotes, 
         except Exception as e:
             logger.info(f"[CVParser] Ollama LLM summary fallback notice ({e}).")
 
-        return f"Accomplished {headline} with {exp_years} of hands-on expertise in {skills_str}. Demonstrated history driving measurable growth across {roles_str} roles."
+        return f"{full_name} is a results-driven {clean_role} with {exp_years} of proven experience in {skills_str}. Demonstrated history driving growth across {roles_str} positions."
 
     async def parse_cv_text_with_llm(self, raw_text: str) -> Dict[str, Any]:
         """
@@ -145,7 +191,7 @@ Respond ONLY with the 2-sentence executive summary text. Do NOT include quotes, 
         Strictly parses actual text content from uploaded file with zero fake mock objects.
         """
         if not raw_text or len(raw_text.strip()) < 10:
-            return self._dynamic_real_cv_parser(raw_text or "")
+            return await self._dynamic_real_cv_parser(raw_text or "")
 
         prompt = f"""
 You are an expert AI Resume Parser. Extract structured JSON from the following CV text.
@@ -312,7 +358,7 @@ CV TEXT:
         if not headline and len(lines) > 1:
             headline = lines[1][:60]
         if not headline:
-            headline = "Corporate Specialist"
+            headline = "Performance Marketing Manager"
 
         bio = f"Results-driven professional with experience in {headline}. Proven track record managing key projects and client deliverables."
 
@@ -469,7 +515,7 @@ CV TEXT:
         # 9. Job Preferences & Career Goals Defaults
         target_roles = ["Performance Marketing Manager", "Digital Marketer"]
         if headline:
-            clean_head_role = headline.split("|")[0].strip()
+            clean_head_role = self._sanitize_headline_role(headline)
             if clean_head_role and clean_head_role not in target_roles:
                 target_roles.insert(0, clean_head_role)
 

@@ -171,7 +171,7 @@ export default function ProfilePage() {
           setFullName(data.full_name || '');
           setPhone(data.phone || '');
           setLocation(data.location || 'Lahore, Pakistan');
-          setHeadline(data.headline || 'Senior Corporate Specialist');
+          setHeadline(data.headline || 'Performance Marketing Manager');
           setBio(data.bio || '');
           setSkills(Array.isArray(data.skills) ? data.skills : []);
           setExperiences(Array.isArray(data.experience) ? data.experience : []);
@@ -208,6 +208,45 @@ export default function ProfilePage() {
       clearTimeout(failsafeTimer);
     };
   }, [router]);
+
+  // Client-side fallback experience calculator
+  const calculateClientTotalExperience = () => {
+    if (totalExperienceYears && totalExperienceYears !== '0.0 Years') {
+      return totalExperienceYears;
+    }
+    if (!experiences || experiences.length === 0) {
+      return '0.0 Years';
+    }
+
+    const monthsNum: Record<string, number> = {
+      jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+      jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
+    };
+
+    let totalMonths = 0;
+    const nowYear = 2026;
+    const nowMonth = 7;
+
+    experiences.forEach(exp => {
+      const sMonth = monthsNum[(exp.start_month || 'jan').toLowerCase()] || 1;
+      const sYear = parseInt(exp.start_year || '2023', 10) || 2023;
+
+      let eMonth = nowMonth;
+      let eYear = nowYear;
+
+      const endYStr = (exp.end_year || '').toLowerCase();
+      if (!exp.is_current && endYStr && !['till', 'present', 'current', 'now'].includes(endYStr)) {
+        eMonth = monthsNum[(exp.end_month || 'dec').toLowerCase()] || 12;
+        eYear = parseInt(exp.end_year || '2026', 10) || 2026;
+      }
+
+      const diff = (eYear - sYear) * 12 + (eMonth - sMonth) + 1;
+      if (diff > 0) totalMonths += diff;
+    });
+
+    const years = (totalMonths / 12.0).toFixed(1);
+    return `${years} Years`;
+  };
 
   const fetchProfileSilent = async () => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
@@ -339,7 +378,7 @@ export default function ProfilePage() {
       const updated = await resp.json();
       setAiExecutiveSummary(updated.ai_executive_summary || '');
       setTotalExperienceYears(updated.total_experience_years || '0.0 Years');
-      setMessage('AI Executive Summary successfully regenerated via Llama 3.1 & indexed in vector store!');
+      setMessage('AI Executive Summary & Total Experience successfully regenerated via Llama 3.1 & indexed in vector store!');
     } catch (err: any) {
       setError(err.message || 'Error regenerating AI summary.');
     } finally {
@@ -794,7 +833,7 @@ export default function ProfilePage() {
                   type="text"
                   value={headline}
                   onChange={(e) => setHeadline(e.target.value)}
-                  placeholder="e.g. Google Ads ROI Specialist | Performance Marketing Expert"
+                  placeholder="e.g. Performance Marketing Manager"
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
                 />
               </div>
@@ -1321,7 +1360,7 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Experience</p>
-                  <h3 className="text-xl font-black text-slate-900">{totalExperienceYears}</h3>
+                  <h3 className="text-xl font-black text-slate-900">{calculateClientTotalExperience()}</h3>
                 </div>
               </div>
 
