@@ -21,32 +21,60 @@ export default function RegisterPage() {
     setError(null);
     setLoading(true);
 
-    try {
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${backendUrl}/api/v1/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          password,
-          role,
-          full_name: role === 'candidate' ? fullName : undefined,
-          company_name: role === 'employer' ? companyName : undefined,
-        }),
-      });
+    const payload = {
+      email,
+      password,
+      role,
+      full_name: role === 'candidate' ? fullName : undefined,
+      company_name: role === 'employer' ? companyName : undefined,
+    };
 
-      const data = await response.json();
+    // Support both 127.0.0.1 and localhost for Windows DNS compatibility
+    const apiEndpoints = [
+      process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/register` : null,
+      'http://127.0.0.1:8000/api/v1/auth/register',
+      'http://localhost:8000/api/v1/auth/register',
+    ].filter(Boolean) as string[];
 
-      if (!response.ok) {
-        throw new Error(data.detail || 'Registration failed. Please check your information.');
+    let success = false;
+    let lastErrorMessage = '';
+
+    for (const endpoint of apiEndpoints) {
+      try {
+        console.log(`[AlfaCareers Auth] Attempting registration at: ${endpoint}`);
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Registration failed. Please check your inputs.');
+        }
+
+        success = true;
+        break;
+      } catch (err: any) {
+        console.warn(`[AlfaCareers Auth] Connection to ${endpoint} failed:`, err);
+        lastErrorMessage = err.message || 'Failed to fetch';
       }
+    }
 
-      // Redirect to verification notice page
+    setLoading(false);
+
+    if (success) {
       router.push(`/verify?email=${encodeURIComponent(email)}`);
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred.');
-    } finally {
-      setLoading(false);
+    } else {
+      if (lastErrorMessage.includes('Failed to fetch') || lastErrorMessage.includes('NetworkError')) {
+        setError('Cannot connect to AlfaCareers backend API (http://127.0.0.1:8000). Please ensure the FastAPI server is running.');
+      } else {
+        setError(lastErrorMessage);
+      }
     }
   };
 

@@ -18,39 +18,60 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
-    try {
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      
-      // OAuth2PasswordRequestForm requires URL-encoded body
-      const bodyParams = new URLSearchParams();
-      bodyParams.append('username', email);
-      bodyParams.append('password', password);
+    const bodyParams = new URLSearchParams();
+    bodyParams.append('username', email);
+    bodyParams.append('password', password);
 
-      const response = await fetch(`${backendUrl}/api/v1/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: bodyParams.toString(),
-      });
+    const apiEndpoints = [
+      process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/login` : null,
+      'http://127.0.0.1:8000/api/v1/auth/login',
+      'http://localhost:8000/api/v1/auth/login',
+    ].filter(Boolean) as string[];
 
-      const data = await response.json();
+    let successData: any = null;
+    let lastErrorMessage = '';
 
-      if (!response.ok) {
-        throw new Error(data.detail || 'Invalid email or password.');
+    for (const endpoint of apiEndpoints) {
+      try {
+        console.log(`[AlfaCareers Auth] Attempting login at: ${endpoint}`);
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json'
+          },
+          body: bodyParams.toString(),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Invalid email or password.');
+        }
+
+        successData = data;
+        break;
+      } catch (err: any) {
+        console.warn(`[AlfaCareers Auth] Connection to ${endpoint} failed:`, err);
+        lastErrorMessage = err.message || 'Failed to fetch';
       }
+    }
 
-      // Save token to localStorage
+    setLoading(false);
+
+    if (successData) {
       if (typeof window !== 'undefined') {
-        localStorage.setItem('access_token', data.access_token);
-        localStorage.setItem('user_id', data.user_id);
-        localStorage.setItem('user_role', data.role);
+        localStorage.setItem('access_token', successData.access_token);
+        localStorage.setItem('user_id', successData.user_id);
+        localStorage.setItem('user_role', successData.role);
       }
-
-      // Redirect to home page
       router.push('/');
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during authentication.');
-    } finally {
-      setLoading(false);
+    } else {
+      if (lastErrorMessage.includes('Failed to fetch') || lastErrorMessage.includes('NetworkError')) {
+        setError('Cannot connect to AlfaCareers backend API (http://127.0.0.1:8000). Please ensure the FastAPI server is running.');
+      } else {
+        setError(lastErrorMessage);
+      }
     }
   };
 
