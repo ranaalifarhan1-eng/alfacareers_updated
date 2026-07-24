@@ -31,10 +31,14 @@ interface WorkExperience {
   company: string;
   job_title: string;
   location?: string;
-  start_date?: string;
-  end_date?: string;
+  start_month?: string;
+  start_year?: string;
+  end_month?: string;
+  end_year?: string;
   is_current?: boolean;
   description?: string;
+  start_date?: string;
+  end_date?: string;
 }
 
 interface EducationItem {
@@ -51,6 +55,9 @@ interface UploadedCV {
   is_primary: boolean;
   created_at: string;
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const YEARS = Array.from({ length: 25 }, (_, i) => String(2026 - i));
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -297,10 +304,12 @@ export default function ProfilePage() {
         company: 'Enterprise Company',
         job_title: 'Senior Specialist',
         location: 'Lahore, Pakistan',
-        start_date: '2022',
-        end_date: 'Present',
+        start_month: 'Jan',
+        start_year: '2023',
+        end_month: '',
+        end_year: '',
         is_current: true,
-        description: 'Key deliverables and team leadership responsibilities...'
+        description: 'Key deliverables and performance operations...'
       }
     ]);
   };
@@ -600,7 +609,7 @@ export default function ProfilePage() {
                 <span>2. Work Experience History ({experiences.length})</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Structured career history used by ReportLab ATS Resume Compiler
+                Structured career history with Month/Year selectors used by ReportLab ATS Resume Compiler
               </p>
             </div>
 
@@ -621,11 +630,11 @@ export default function ProfilePage() {
           ) : (
             <div className="space-y-4">
               {experiences.map((exp, idx) => (
-                <div key={idx} className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 space-y-3 relative">
+                <div key={idx} className="p-5 bg-slate-50/80 rounded-xl border border-slate-200 space-y-4 relative">
                   <button
                     type="button"
                     onClick={() => handleRemoveExperience(idx)}
-                    className="absolute top-3 right-3 text-slate-400 hover:text-red-600 transition"
+                    className="absolute top-4 right-4 text-slate-400 hover:text-red-600 transition"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -657,30 +666,7 @@ export default function ProfilePage() {
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                        Dates (Start – End)
-                      </label>
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="text"
-                          value={exp.start_date || ''}
-                          onChange={(e) => handleUpdateExperience(idx, 'start_date', e.target.value)}
-                          placeholder="Aug 2023"
-                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
-                        />
-                        <span className="text-slate-400 text-xs">–</span>
-                        <input
-                          type="text"
-                          value={exp.end_date || ''}
-                          onChange={(e) => handleUpdateExperience(idx, 'end_date', e.target.value)}
-                          placeholder="Till"
-                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
+                    <div className="sm:col-span-2">
                       <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                         Location
                       </label>
@@ -688,9 +674,85 @@ export default function ProfilePage() {
                         type="text"
                         value={exp.location || ''}
                         onChange={(e) => handleUpdateExperience(idx, 'location', e.target.value)}
-                        placeholder="Lahore, Pakistan"
+                        placeholder="e.g. Dubai, UAE or Lahore, Pakistan"
                         className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
                       />
+                    </div>
+                  </div>
+
+                  {/* Standardized Month/Year Date Selectors */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200/60">
+                    {/* Start Date */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Start Date (Month & Year)
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={exp.start_month || 'Jan'}
+                          onChange={(e) => handleUpdateExperience(idx, 'start_month', e.target.value)}
+                          className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900"
+                        >
+                          {MONTHS.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={exp.start_year || '2023'}
+                          onChange={(e) => handleUpdateExperience(idx, 'start_year', e.target.value)}
+                          className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900"
+                        >
+                          {YEARS.map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* End Date or Current Checkbox */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-semibold text-slate-600">
+                          End Date
+                        </label>
+                        <label className="inline-flex items-center space-x-1.5 text-[11px] font-semibold text-blue-600 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!exp.is_current}
+                            onChange={(e) => handleUpdateExperience(idx, 'is_current', e.target.checked)}
+                            className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
+                          />
+                          <span>I currently work here</span>
+                        </label>
+                      </div>
+
+                      {exp.is_current ? (
+                        <div className="px-3 py-1.5 bg-emerald-50 text-emerald-700 font-semibold text-xs rounded-lg border border-emerald-200/80 flex items-center space-x-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Present Position (Active)</span>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                          <select
+                            value={exp.end_month || 'Dec'}
+                            onChange={(e) => handleUpdateExperience(idx, 'end_month', e.target.value)}
+                            className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900"
+                          >
+                            {MONTHS.map(m => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
+                          <select
+                            value={exp.end_year || '2026'}
+                            onChange={(e) => handleUpdateExperience(idx, 'end_year', e.target.value)}
+                            className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900"
+                          >
+                            {YEARS.map(y => (
+                              <option key={y} value={y}>{y}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   </div>
 

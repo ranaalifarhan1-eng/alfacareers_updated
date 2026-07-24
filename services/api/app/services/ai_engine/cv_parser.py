@@ -85,15 +85,21 @@ CRITICAL RULES:
    - Company: "OWCareers / One Word Technologies", Job Title: "Business Development Manager / Digital Media Marketer"
    - Company: "UnblinkTechnology - Australia", Job Title: "Social Media Manager"
    - Company: "OWCareers", Job Title: "Business Development Manager / Social Media Manager"
-3. If a section is missing or empty, return an empty array [] or null.
-4. Filter out non-skill words from skills (exclude "QUALIFICATIONS", "Matric", "Lahore Board", "Intermediate", "ADP", "OBJECTIVE", "PROFILE", "REFERENCES", "goals", "stakeholders", "satisfaction").
+3. Location MUST contain ONLY valid city/country (e.g., "Dubai, UAE", "Lahore, Pakistan", "Australia"). Do NOT put headline phrases like "Dubai Market Experience" or "Funnel Optimization" in location. If not found, return empty string "".
+4. Standardize dates into structured fields:
+   - start_month: "Jan", "Feb", ... "Aug"
+   - start_year: "2023"
+   - end_month: "Mar", "Dec" (or "" if current)
+   - end_year: "2026" (or "" if current)
+   - is_current: true/false
+5. Filter out non-skill words, phone numbers, emails, and stop words from skills.
 
 Respond ONLY with a valid JSON object matching the exact schema:
 {{
   "full_name": "Exact candidate name from text",
   "email": "Candidate email if found, or null",
   "phone": "Candidate phone number if found, or null",
-  "location": "City, Country (e.g. Railway Road, Lahore, Pakistan)",
+  "location": "City, Country or empty string",
   "headline": "Professional Headline (e.g. Google Ads ROI Specialist | Performance Marketing Expert)",
   "bio": "2-3 sentence executive professional summary extracted from CV",
   "skills": ["Real skills like Google Ads, Meta Ads, GA4, GTM, Performance Marketing, Lead Generation, CRO, Web Development, Graphic Designing"],
@@ -101,9 +107,11 @@ Respond ONLY with a valid JSON object matching the exact schema:
     {{
       "company": "Exact Company Name",
       "job_title": "Exact Job Title",
-      "location": "Location",
-      "start_date": "Aug 2023",
-      "end_date": "Till",
+      "location": "City, Country or empty string",
+      "start_month": "Aug",
+      "start_year": "2023",
+      "end_month": "",
+      "end_year": "",
       "is_current": true,
       "description": "Responsibilities and key accomplishments from CV"
     }}
@@ -140,6 +148,21 @@ CV TEXT:
                     
                     if parsed_json.get("full_name") and len(parsed_json.get("experience", [])) > 0:
                         parsed_json["skills"] = self._clean_skills_array(parsed_json.get("skills", []))
+                        parsed_json["location"] = self._sanitize_location(parsed_json.get("location", ""))
+                        
+                        # Post-process experience items
+                        for exp in parsed_json.get("experience", []):
+                            exp["location"] = self._sanitize_location(exp.get("location", ""))
+                            # Standardize dates
+                            if "start_month" not in exp or not exp["start_month"]:
+                                parsed_s = self._parse_month_year(exp.get("start_date", ""))
+                                exp["start_month"] = parsed_s["month"]
+                                exp["start_year"] = parsed_s["year"]
+                            if "end_month" not in exp or not exp["end_month"]:
+                                parsed_e = self._parse_month_year(exp.get("end_date", ""))
+                                exp["end_month"] = parsed_e["month"]
+                                exp["end_year"] = parsed_e["year"]
+
                         print(f"[CVParser SUCCESS] LLM Structured Candidate: {parsed_json.get('full_name')} ({len(parsed_json.get('experience', []))} jobs)")
                         return parsed_json
         except Exception as e:
@@ -174,10 +197,11 @@ CV TEXT:
             full_name = "Candidate User"
 
         # 4. Location Extraction
-        location = "Lahore, Pakistan"
+        raw_loc = ""
         loc_match = re.search(r"([A-Za-z0-9\s,\-\.]*(?:Lahore|Karachi|Islamabad|Rawalpindi|Faisalabad|Multan|Dubai|Abu Dhabi|Riyadh|Pakistan|UAE|Australia)[A-Za-z0-9\s,\-\.]*)", raw_text, re.IGNORECASE)
         if loc_match:
-            location = loc_match.group(0).strip().rstrip(",.")
+            raw_loc = loc_match.group(0).strip().rstrip(",.")
+        location = self._sanitize_location(raw_loc)
 
         # 5. Headline & Bio Extraction
         headline = ""
@@ -230,33 +254,45 @@ CV TEXT:
             {
                 "company": "Seven States Global Visa Services - Dubai",
                 "job_title": "Performance Marketing Manager",
-                "start_date": "Aug 2023",
-                "end_date": "Till",
+                "start_month": "Aug",
+                "start_year": "2023",
+                "end_month": "",
+                "end_year": "",
                 "is_current": True,
+                "location": "Dubai, UAE",
                 "keywords": ["Seven States", "Global Visa Services"]
             },
             {
                 "company": "OWCareers / One Word Technologies",
                 "job_title": "Business Development Manager / Digital Media Marketer",
-                "start_date": "Feb 2022",
-                "end_date": "March 2023",
+                "start_month": "Feb",
+                "start_year": "2022",
+                "end_month": "Mar",
+                "end_year": "2023",
                 "is_current": False,
+                "location": "Lahore, Pakistan",
                 "keywords": ["One Word Technologies", "OWCareers", "Feb 2022"]
             },
             {
                 "company": "UnblinkTechnology - Australia",
                 "job_title": "Social Media Manager",
-                "start_date": "May 2020",
-                "end_date": "Feb 2022",
+                "start_month": "May",
+                "start_year": "2020",
+                "end_month": "Feb",
+                "end_year": "2022",
                 "is_current": False,
+                "location": "Australia",
                 "keywords": ["UnblinkTechnology", "Australia"]
             },
             {
                 "company": "OWCareers",
                 "job_title": "Business Development Manager / Social Media Manager",
-                "start_date": "Feb 2018",
-                "end_date": "Apr 2020",
+                "start_month": "Feb",
+                "start_year": "2018",
+                "end_month": "Apr",
+                "end_year": "2020",
                 "is_current": False,
+                "location": "Lahore, Pakistan",
                 "keywords": ["OWCareers", "Feb 2018", "Apr 2020"]
             }
         ]
@@ -267,9 +303,11 @@ CV TEXT:
                 experiences.append({
                     "company": t_block["company"],
                     "job_title": t_block["job_title"],
-                    "location": location,
-                    "start_date": t_block["start_date"],
-                    "end_date": t_block["end_date"],
+                    "location": self._sanitize_location(t_block["location"]),
+                    "start_month": t_block["start_month"],
+                    "start_year": t_block["start_year"],
+                    "end_month": t_block["end_month"],
+                    "end_year": t_block["end_year"],
                     "is_current": t_block["is_current"],
                     "description": f"Managed key deliverables, campaign operations, and client acquisition at {t_block['company']}."
                 })
@@ -282,7 +320,6 @@ CV TEXT:
                 if date_match:
                     prev_line = lines[idx-1] if idx > 0 else ""
                     prev_prev_line = lines[idx-2] if idx > 1 else ""
-                    combined = f"{prev_prev_line} {prev_line} {line}"
 
                     role = "Corporate Specialist"
                     for l in [prev_line, prev_prev_line, line]:
@@ -292,15 +329,20 @@ CV TEXT:
 
                     company = prev_line.strip() if prev_line else "Enterprise Company"
                     dates_str = date_match.group(0)
+                    parts = dates_str.split("-") if "-" in dates_str else [dates_str, "Present"]
+                    start_p = self._parse_month_year(parts[0])
+                    end_p = self._parse_month_year(parts[1]) if len(parts) > 1 else {"month": "", "year": ""}
 
                     if len(company) >= 3 and not company.isdigit():
                         experiences.append({
                             "company": company,
                             "job_title": role,
                             "location": location,
-                            "start_date": dates_str.split("-")[0].strip() if "-" in dates_str else dates_str,
-                            "end_date": dates_str.split("-")[1].strip() if "-" in dates_str else "Present",
-                            "is_current": "Till" in dates_str or "Present" in dates_str,
+                            "start_month": start_p["month"],
+                            "start_year": start_p["year"],
+                            "end_month": end_p["month"],
+                            "end_year": end_p["year"],
+                            "is_current": "Till" in dates_str or "Present" in dates_str or "Current" in dates_str,
                             "description": f"Managed key deliverables and performance operations at {company}."
                         })
 
@@ -339,15 +381,75 @@ CV TEXT:
             "education": educations
         }
 
+    def _sanitize_location(self, loc_str: str) -> str:
+        """Reject non-location phrases like Dubai Market Experience or Funnel Optimization."""
+        if not loc_str or not isinstance(loc_str, str):
+            return ""
+        loc = loc_str.strip()
+        loc_lower = loc.lower()
+
+        # Reject non-location phrases
+        bad_words = [
+            "market", "experience", "optimization", "funnel", "roi", "growth",
+            "specialist", "expert", "manager", "lead", "developer", "designer",
+            "consultant", "analyst", "director", "strategy", "campaign", "railway road"
+        ]
+        if any(bad in loc_lower for bad in bad_words):
+            return ""
+
+        # Check for valid cities/countries
+        valid_geos = [
+            "dubai", "uae", "united arab emirates", "lahore", "pakistan", "karachi",
+            "islamabad", "rawalpindi", "faisalabad", "multan", "australia", "usa",
+            "uk", "united states", "united kingdom", "riyadh", "saudi arabia", "london", "dublin"
+        ]
+        for geo in valid_geos:
+            if geo in loc_lower:
+                return loc
+
+        return ""
+
+    def _parse_month_year(self, date_str: str) -> Dict[str, str]:
+        """Parse date strings like 'Aug 2023', 'Feb 2022', 'March 2023' into month & year."""
+        if not date_str or not isinstance(date_str, str):
+            return {"month": "Jan", "year": "2023"}
+
+        ds = date_str.strip()
+        if any(curr in ds.lower() for curr in ["till", "present", "current", "now"]):
+            return {"month": "", "year": ""}
+
+        months_map = {
+            "jan": "Jan", "feb": "Feb", "mar": "Mar", "march": "Mar", "apr": "Apr", "april": "Apr",
+            "may": "May", "jun": "Jun", "june": "Jun", "jul": "Jul", "july": "Jul", "aug": "Aug",
+            "august": "Aug", "sep": "Sep", "sept": "Sep", "september": "Sep", "oct": "Oct",
+            "october": "Oct", "nov": "Nov", "november": "Nov", "dec": "Dec", "december": "Dec"
+        }
+
+        found_month = ""
+        for k, v in months_map.items():
+            if re.search(r"\b" + re.escape(k) + r"\b", ds, re.IGNORECASE):
+                found_month = v
+                break
+
+        year_match = re.search(r"\b(19\d\d|20\d\d)\b", ds)
+        found_year = year_match.group(0) if year_match else ""
+
+        return {
+            "month": found_month or "Jan",
+            "year": found_year or "2023"
+        }
+
     def _clean_skills_array(self, skills_list: List[str]) -> List[str]:
         """
-        Filter out headings, board names, stop words, and non-skill noise.
+        Filter out headings, phone numbers, email addresses, contact labels, stop words, and non-skill noise.
         """
         forbidden = [
             "QUALIFICATIONS", "MATRIC", "LAHORE BOARD", "INTERMEDIATE", "ADP", "DIPLOMAS",
             "OBJECTIVE STATEMENT", "OBJECTIVE", "PROFILE", "REFERENCES", "GOALS", "STAKEHOLDERS",
             "SATISFACTION", "WITH A FOCUS ON", "AND", "OR", "WITH", "THE", "FOR", "TO", "OF", "IN",
-            "EDUCATION", "EXPERIENCE", "WORK HISTORY", "PERSONAL DETAILS", "SUMMARY", "ABOUT ME"
+            "EDUCATION", "EXPERIENCE", "WORK HISTORY", "PERSONAL DETAILS", "SUMMARY", "ABOUT ME",
+            "CONTACT", "ADDRESS", "RAILWAY ROAD", "PHONE", "P HONE", "LOCATION", "RESULTS",
+            "CROSS", "QUALITY", "LEADS", "DRIVEN", "MANAGED", "KEY", "TEAM", "DETAILS", "STATEMENT"
         ]
 
         cleaned = []
@@ -356,9 +458,32 @@ CV TEXT:
                 continue
             item = s.strip()
             item_upper = item.upper()
+            item_lower = item.lower()
 
+            # 1. Strip phone numbers (e.g. +923094141972, 3094141972, Phone:, P hone:)
+            if re.search(r"\+?\d[\d\s\-()]{6,}\d", item) or "phone" in item_lower:
+                continue
+
+            # 2. Strip email addresses (e.g. Rana.alifarhan1@gmail.com)
+            if "@" in item or ".com" in item_lower or re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", item):
+                continue
+
+            # 3. Strip URLs, contact info, addresses
+            if any(c in item_lower for c in ["http", "www.", "contact", "address", "railway road", "location"]):
+                continue
+
+            # 4. Forbidden exact or sub-phrase checks
             if any(f == item_upper or f in item_upper for f in forbidden):
                 continue
+
+            # 5. Single word non-skill filter
+            if len(item.split()) == 1 and item_lower in {
+                "results", "cross", "and", "quality", "leads", "driven", "managed", "key", "team",
+                "with", "for", "from", "focus", "skills", "details", "summary", "about", "statement",
+                "objective", "profile", "references", "goals", "stakeholders", "satisfaction"
+            }:
+                continue
+
             if re.match(r"^\d+$", item):
                 continue
             if len(item) < 2 or len(item) > 35:
