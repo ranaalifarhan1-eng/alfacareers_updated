@@ -1,3 +1,4 @@
+import os
 from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,29 +8,37 @@ class Settings(BaseSettings):
     APP_NAME: str = "AlfaCareers API"
     API_V1_STR: str = "/api/v1"
     
-    SECRET_KEY: str = "development_secret_key_change_in_production"
-    JWT_SECRET: str = "development_jwt_secret_change_in_production"
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "development_secret_key_change_in_production")
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "development_jwt_secret_change_in_production")
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     
     # PostgreSQL
-    POSTGRES_USER: str = "alfacareers_user"
-    POSTGRES_PASSWORD: str = "alfacareers_password"
-    POSTGRES_DB: str = "alfacareers_db"
-    POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "alfacareers_user")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "alfacareers_password")
+    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "alfacareers_db")
+    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
+    POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", 5432))
     DATABASE_URL: Optional[str] = None
 
     # Vector DB & LLM
-    CHROMADB_HOST: str = "localhost"
-    CHROMADB_PORT: int = 8000
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3.1"
+    CHROMADB_HOST: str = os.getenv("CHROMADB_HOST", "localhost")
+    CHROMADB_PORT: int = int(os.getenv("CHROMADB_PORT", 8000))
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1")
     
-    # External APIs
-    SERPAPI_KEY: Optional[str] = None
-    BING_SEARCH_API_KEY: Optional[str] = None
-    WAMANAGER_API_KEY: Optional[str] = None
+    # External Search & Messaging APIs
+    SERPAPI_KEY: Optional[str] = os.getenv("SERPAPI_KEY")
+    BING_SEARCH_API_KEY: Optional[str] = os.getenv("BING_SEARCH_API_KEY")
+    WAMANAGER_API_KEY: Optional[str] = os.getenv("WAMANAGER_API_KEY")
+
+    # Brevo SMTP Settings
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp-relay.brevo.com")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", 587))
+    SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "jobs@alfacareers.com")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "jobs@alfacareers.com")
+    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "AlfaCareers")
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [

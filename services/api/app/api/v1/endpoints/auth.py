@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import Optional, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from app.db.base import get_db
 from app.db.models import User, UserRole, CandidateProfile, EmployerProfile
 from app.core.security import get_password_hash, verify_password, create_access_token, decode_access_token
 from app.core.config import settings
+from app.core.email import send_welcome_email
 
 router = APIRouter()
 
@@ -69,6 +70,7 @@ async def get_current_user(
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(
     req: UserRegisterRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
     """Register a new candidate, employer, or admin user."""
@@ -102,6 +104,10 @@ async def register_user(
 
     await db.commit()
     await db.refresh(user)
+
+    # Safely schedule background email dispatch (never crashes registration)
+    recipient_display_name = full_name or company_name or user.email
+    background_tasks.add_task(send_welcome_email, user.email, recipient_display_name)
 
     return UserResponse(
         id=user.id,

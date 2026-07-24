@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import { 
   Search, 
   Sparkles, 
@@ -24,7 +25,7 @@ export default function Home() {
       {/* Header */}
       <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
+          <Link href="/" className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center font-extrabold text-white shadow-md shadow-blue-500/20 text-lg">
               AC
             </div>
@@ -36,7 +37,7 @@ export default function Home() {
                 The Hidden Job Engine
               </span>
             </div>
-          </div>
+          </Link>
 
           <nav className="hidden md:flex items-center space-x-8">
             <a href="#deep-web-hunter" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition">
@@ -54,12 +55,18 @@ export default function Home() {
           </nav>
 
           <div className="flex items-center space-x-3">
-            <button className="px-4 py-2 text-sm font-semibold text-slate-700 hover:text-blue-600 hover:bg-slate-100/80 rounded-lg transition">
+            <Link 
+              href="/login"
+              className="px-4 py-2 text-sm font-semibold text-slate-700 hover:text-blue-600 hover:bg-slate-100/80 rounded-lg transition"
+            >
               Sign In
-            </button>
-            <button className="px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-lg shadow-md shadow-blue-500/20 transition transform hover:-translate-y-0.5">
+            </Link>
+            <Link 
+              href="/register"
+              className="px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-lg shadow-md shadow-blue-500/20 transition transform hover:-translate-y-0.5"
+            >
               Get Started Free
-            </button>
+            </Link>
           </div>
         </div>
       </header>
@@ -109,10 +116,10 @@ export default function Home() {
               />
             </div>
 
-            <button className="w-full md:w-auto px-7 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 font-semibold text-sm text-white rounded-xl shadow-lg shadow-blue-600/25 transition flex items-center justify-center space-x-2 shrink-0">
+            <Link href="/register" className="w-full md:w-auto px-7 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 font-semibold text-sm text-white rounded-xl shadow-lg shadow-blue-600/25 transition flex items-center justify-center space-x-2 shrink-0">
               <span>Hunt Hidden Jobs</span>
               <ArrowRight className="w-4 h-4" />
-            </button>
+            </Link>
           </div>
 
           {/* Metrics Banner */}
@@ -229,9 +236,9 @@ export default function Home() {
                   <span className="text-xs font-semibold text-slate-500 block">Match Score</span>
                   <span className="text-xl font-black text-blue-600">96%</span>
                 </div>
-                <button className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
+                <Link href="/register" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
                   Auto-Apply Now
-                </button>
+                </Link>
               </div>
             </div>
 
@@ -266,9 +273,9 @@ export default function Home() {
                   <span className="text-xs font-semibold text-slate-500 block">Match Score</span>
                   <span className="text-xl font-black text-indigo-600">91%</span>
                 </div>
-                <button className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
+                <Link href="/register" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
                   Auto-Apply Now
-                </button>
+                </Link>
               </div>
             </div>
           </div>
