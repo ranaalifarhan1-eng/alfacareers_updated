@@ -1,6 +1,6 @@
 import random
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Any
+from typing import Optional, Any, List, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
@@ -56,6 +56,34 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
+class CandidateProfileDetailResponse(BaseModel):
+    id: int
+    user_id: int
+    email: str
+    role: UserRole
+    full_name: str
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    headline: Optional[str] = None
+    bio: Optional[str] = None
+    skills: List[str] = []
+    experience: List[Dict[str, Any]] = []
+    education: List[Dict[str, Any]] = []
+    master_cv_url: Optional[str] = None
+
+
+class CandidateProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    headline: Optional[str] = None
+    bio: Optional[str] = None
+    skills: Optional[List[str]] = None
+    experience: Optional[List[Dict[str, Any]]] = None
+    education: Optional[List[Dict[str, Any]]] = None
+    master_cv_text: Optional[str] = None
+
+
 def generate_otp_code() -> str:
     """Generate a secure 6-digit OTP string."""
     return str(random.randint(100000, 999999))
@@ -81,7 +109,7 @@ async def get_current_user(
     return user
 
 
-# --- Auth Endpoints ---
+# --- Auth & Profile Endpoints ---
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(
@@ -160,14 +188,12 @@ async def verify_code(
         raise HTTPException(status_code=404, detail="User account not found")
 
     if user.is_verified:
-        # Already verified: generate JWT
         access_token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value})
         return TokenResponse(access_token=access_token, token_type="bearer", role=user.role, user_id=user.id)
 
     if not user.otp_code or user.otp_code.strip() != req.code.strip():
         raise HTTPException(status_code=400, detail="Invalid 6-digit verification code")
 
-    # Check expiry
     now_utc = datetime.now(timezone.utc)
     if user.otp_expires_at and user.otp_expires_at.tzinfo is None:
         user_expiry = user.otp_expires_at.replace(tzinfo=timezone.utc)
@@ -177,7 +203,6 @@ async def verify_code(
     if user_expiry and now_utc > user_expiry:
         raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new code.")
 
-    # Mark as verified
     user.is_verified = True
     user.otp_code = None
     user.otp_expires_at = None
@@ -186,7 +211,6 @@ async def verify_code(
 
     print(f"\n[Auth SUCCESS] User {user.email} successfully verified via OTP!")
 
-    # Generate JWT token upon verification
     access_token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value})
     return TokenResponse(
         access_token=access_token,
@@ -212,7 +236,6 @@ async def resend_code(
     if user.is_verified:
         return {"message": "Account is already verified. Please sign in."}
 
-    # Generate new OTP
     otp_code = generate_otp_code()
     user.otp_code = otp_code
     user.otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
@@ -227,7 +250,7 @@ async def resend_code(
 
     return {
         "message": f"A new 6-digit verification code has been dispatched to {user.email}",
-        "dev_otp": otp_code  # Helpful for local dev testing
+        "dev_otp": otp_code
     }
 
 
@@ -236,7 +259,7 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
-    """Authenticate user and return JWT bearer token (enforces email verification)."""
+    """Authenticate user and return JWT bearer token."""
     result = await db.execute(select(User).where(User.email == form_data.username))
     user = result.scalars().first()
 
@@ -270,7 +293,7 @@ async def get_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get current authenticated user profile."""
+    """Get current authenticated user profile summary."""
     full_name = None
     company_name = None
 
@@ -293,4 +316,95 @@ async def get_me(
         is_verified=current_user.is_verified,
         full_name=full_name,
         company_name=company_name
+    )
+
+
+@router.get("/profile", response_model=CandidateProfileDetailResponse)
+async def get_candidate_profile(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get full candidate profile details."""
+    res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == current_user.id))
+    cp = res.scalars().first()
+
+    if not cp:
+        cp = CandidateProfile(
+            user_id=current_user.id,
+            full_name=current_user.email.split("@")[0].capitalize(),
+            skills=["Financial Analysis", "Python", "Strategic Management"]
+        )
+        db.add(cp)
+        await db.commit()
+        await db.refresh(cp)
+
+    return CandidateProfileDetailResponse(
+        id=cp.id,
+        user_id=cp.user_id,
+        email=current_user.email,
+        role=current_user.role,
+        full_name=cp.full_name,
+        phone=cp.phone,
+        location=cp.location or "Lahore, Pakistan",
+        headline=cp.headline or "Senior Corporate Specialist",
+        bio=cp.bio or "Results-oriented professional passionate about high-impact roles.",
+        skills=cp.skills or ["Financial Analysis", "Python", "Strategic Management"],
+        experience=cp.experience or [],
+        education=cp.education or [],
+        master_cv_url=cp.master_cv_url
+    )
+
+
+@router.put("/profile", response_model=CandidateProfileDetailResponse)
+async def update_candidate_profile(
+    req: CandidateProfileUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update candidate profile details."""
+    res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == current_user.id))
+    cp = res.scalars().first()
+
+    if not cp:
+        cp = CandidateProfile(user_id=current_user.id, full_name=current_user.email.split("@")[0].capitalize())
+        db.add(cp)
+
+    if req.full_name is not None:
+        cp.full_name = req.full_name
+    if req.phone is not None:
+        cp.phone = req.phone
+    if req.location is not None:
+        cp.location = req.location
+    if req.headline is not None:
+        cp.headline = req.headline
+    if req.bio is not None:
+        cp.bio = req.bio
+    if req.skills is not None:
+        cp.skills = req.skills
+    if req.experience is not None:
+        cp.experience = req.experience
+    if req.education is not None:
+        cp.education = req.education
+    if req.master_cv_text is not None:
+        cp.master_cv_url = req.master_cv_text
+
+    await db.commit()
+    await db.refresh(cp)
+
+    print(f"\n[Profile SUCCESS] Updated profile for candidate: {cp.full_name} ({current_user.email})")
+
+    return CandidateProfileDetailResponse(
+        id=cp.id,
+        user_id=cp.user_id,
+        email=current_user.email,
+        role=current_user.role,
+        full_name=cp.full_name,
+        phone=cp.phone,
+        location=cp.location,
+        headline=cp.headline,
+        bio=cp.bio,
+        skills=cp.skills or [],
+        experience=cp.experience or [],
+        education=cp.education or [],
+        master_cv_url=cp.master_cv_url
     )
