@@ -1,4 +1,5 @@
-from datetime import timedelta
+import random
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -26,6 +27,15 @@ class UserRegisterRequest(BaseModel):
     company_name: Optional[str] = None  # Employer company name
 
 
+class VerifyCodeRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+
+class ResendCodeRequest(BaseModel):
+    email: EmailStr
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -38,11 +48,17 @@ class UserResponse(BaseModel):
     email: str
     role: UserRole
     is_active: bool
+    is_verified: bool
     full_name: Optional[str] = None
     company_name: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+def generate_otp_code() -> str:
+    """Generate a secure 6-digit OTP string."""
+    return str(random.randint(100000, 999999))
 
 
 # --- Dependency for Current User ---
@@ -73,18 +89,24 @@ async def register_user(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
-    """Register a new candidate, employer, or admin user."""
+    """Register a new candidate, employer, or admin user with 6-Digit OTP generation."""
     # Check existing email
     existing = await db.execute(select(User).where(User.email == req.email))
     if existing.scalars().first():
         raise HTTPException(status_code=400, detail="Email is already registered")
 
     hashed_pwd = get_password_hash(req.password)
+    otp_code = generate_otp_code()
+    otp_expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+
     user = User(
         email=req.email,
         hashed_password=hashed_pwd,
         role=req.role,
-        is_active=True
+        is_active=True,
+        is_verified=False,
+        otp_code=otp_code,
+        otp_expires_at=otp_expires
     )
     db.add(user)
     await db.flush()
@@ -105,18 +127,94 @@ async def register_user(
     await db.commit()
     await db.refresh(user)
 
-    # Safely schedule background email dispatch (never crashes registration)
+    # Safely schedule background email dispatch with OTP code
     recipient_display_name = full_name or company_name or user.email
-    background_tasks.add_task(send_welcome_email, user.email, recipient_display_name)
+    background_tasks.add_task(send_welcome_email, user.email, recipient_display_name, otp_code)
 
     return UserResponse(
         id=user.id,
         email=user.email,
         role=user.role,
         is_active=user.is_active,
+        is_verified=user.is_verified,
         full_name=full_name,
         company_name=company_name
     )
+
+
+@router.post("/verify-code", response_model=TokenResponse)
+async def verify_code(
+    req: VerifyCodeRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Validate 6-digit OTP code and verify user account."""
+    result = await db.execute(select(User).where(User.email == req.email))
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    if user.is_verified:
+        # Already verified: generate JWT
+        access_token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value})
+        return TokenResponse(access_token=access_token, token_type="bearer", role=user.role, user_id=user.id)
+
+    if not user.otp_code or user.otp_code.strip() != req.code.strip():
+        raise HTTPException(status_code=400, detail="Invalid 6-digit verification code")
+
+    # Check expiry
+    now_utc = datetime.now(timezone.utc)
+    if user.otp_expires_at and user.otp_expires_at.tzinfo is None:
+        user_expiry = user.otp_expires_at.replace(tzinfo=timezone.utc)
+    else:
+        user_expiry = user.otp_expires_at
+
+    if user_expiry and now_utc > user_expiry:
+        raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new code.")
+
+    # Mark as verified
+    user.is_verified = True
+    user.otp_code = None
+    user.otp_expires_at = None
+    await db.commit()
+    await db.refresh(user)
+
+    # Generate JWT token upon verification
+    access_token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value})
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        role=user.role,
+        user_id=user.id
+    )
+
+
+@router.post("/resend-code")
+async def resend_code(
+    req: ResendCodeRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """Regenerate a new 6-digit OTP code and resend verification email."""
+    result = await db.execute(select(User).where(User.email == req.email))
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    if user.is_verified:
+        return {"message": "Account is already verified. Please sign in."}
+
+    # Generate new OTP
+    otp_code = generate_otp_code()
+    user.otp_code = otp_code
+    user.otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    await db.commit()
+
+    recipient_display_name = user.email.split("@")[0].capitalize()
+    background_tasks.add_task(send_welcome_email, user.email, recipient_display_name, otp_code)
+
+    return {"message": f"A new 6-digit verification code has been dispatched to {user.email}"}
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -124,7 +222,7 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
-    """Authenticate user and return JWT bearer token."""
+    """Authenticate user and return JWT bearer token (enforces email verification)."""
     result = await db.execute(select(User).where(User.email == form_data.username))
     user = result.scalars().first()
 
@@ -133,6 +231,12 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please verify your email address first before signing in."
         )
 
     access_token = create_access_token(
@@ -172,6 +276,7 @@ async def get_me(
         email=current_user.email,
         role=current_user.role,
         is_active=current_user.is_active,
+        is_verified=current_user.is_verified,
         full_name=full_name,
         company_name=company_name
     )
