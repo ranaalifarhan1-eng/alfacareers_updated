@@ -92,7 +92,7 @@ CRITICAL RULES:
    - end_month: "Mar", "Dec" (or "" if current)
    - end_year: "2026" (or "" if current)
    - is_current: true/false
-5. Filter out non-skill words, phone numbers, emails, colons, and stop words from skills.
+5. Extract ONLY direct professional skill keywords/technologies (1-3 words max, e.g., 'Google Ads', 'Meta Ads', 'GA4', 'GTM', 'Adobe Photoshop'). NEVER extract full sentences, bullet points, or profile summary phrases like 'delivering exceptional' or 'growth by delivering'.
 
 Respond ONLY with a valid JSON object matching the exact schema:
 {{
@@ -102,7 +102,7 @@ Respond ONLY with a valid JSON object matching the exact schema:
   "location": "City, Country or empty string",
   "headline": "Professional Headline (e.g. Google Ads ROI Specialist | Performance Marketing Expert)",
   "bio": "2-3 sentence executive professional summary extracted from CV",
-  "skills": ["Real skills like Google Ads, Meta Ads, GA4, GTM, Performance Marketing, Lead Generation, CRO, Web Development, Graphic Designing"],
+  "skills": ["Direct skill keywords 1-3 words max like Google Ads, Meta Ads, GA4, GTM, Performance Marketing, Lead Generation, CRO, Web Development, Graphic Designing"],
   "experience": [
     {{
       "company": "Exact Company Name",
@@ -435,59 +435,66 @@ CV TEXT:
 
     def _clean_skills_array(self, skills_list: List[str]) -> List[str]:
         """
-        Filter out headings, phone numbers, email addresses, colons, digits, stop words, and generic English phrases.
+        Filter out headings, phone numbers, email addresses, colons, digits, sentence fragments (>3 words),
+        verbs, stop words, and sentence filler words.
         """
-        forbidden_terms = [
+        stop_words_pattern = r"\b(and|or|by|with|delivering|executing|improving|growing|exceptional|exceptiona|impactful|high|quality|stakeholders|satisfaction|results|cross|functional|focus|focused|driven|managing|managed|leading|lead|basis|growth)\b"
+        
+        forbidden_exact = [
             "QUALIFICATIONS", "MATRIC", "LAHORE BOARD", "INTERMEDIATE", "ADP", "DIPLOMAS",
             "OBJECTIVE STATEMENT", "OBJECTIVE", "PROFILE", "REFERENCES", "GOALS", "STAKEHOLDERS",
-            "SATISFACTION", "WITH A FOCUS ON", "ON THE BASIS", "ON THE BASIS OF", "QUALITY LEADS",
-            "DRIVEN BY", "IN ORDER TO", "BASED ON", "EDUCATION", "EXPERIENCE", "WORK HISTORY",
-            "PERSONAL DETAILS", "SUMMARY", "ABOUT ME", "CONTACT", "ADDRESS", "RAILWAY ROAD",
-            "PHONE", "P HONE", "LOCATION", "RESULTS", "CROSS", "QUALITY", "LEADS", "DRIVEN",
-            "MANAGED", "KEY", "TEAM", "DETAILS", "STATEMENT", "BASIS", "ON THE"
+            "SATISFACTION", "EDUCATION", "EXPERIENCE", "WORK HISTORY", "PERSONAL DETAILS", "SUMMARY",
+            "ABOUT ME", "CONTACT", "ADDRESS", "RAILWAY ROAD", "PHONE", "P HONE", "LOCATION"
         ]
 
         cleaned = []
         for s in skills_list:
             if not s or not isinstance(s, str):
                 continue
+
+            # Strip leading/trailing conjunctions, prepositions, & punctuation
             item = s.strip()
+            item = re.sub(r"^(?:and|with|by|&|\s|[.,;:•\-/])+", "", item, flags=re.IGNORECASE)
+            item = re.sub(r"(?:and|with|by|&|\s|[.,;:•\-/])+$", "", item, flags=re.IGNORECASE).strip()
+
+            if not item:
+                continue
+
+            words = item.split()
+
+            # 1. Word Count Restriction: REJECT any skill tag with more than 3 words!
+            if len(words) > 3 or len(words) == 0:
+                continue
+
             item_upper = item.upper()
             item_lower = item.lower()
 
-            # 1. Reject colons (e.g., Phone:, Contact:, Email:, Headline:)
+            # 2. Reject colons (e.g. Phone:, Contact:, Email:)
             if ":" in item:
                 continue
 
-            # 2. Reject any digits/numbers (e.g., +923094141972, 3094141972, 2022)
-            if re.search(r"\d", item):
+            # 3. Reject any digits/numbers UNLESS it is a known tech skill like GA4, Next.js
+            if re.search(r"\d", item) and item_upper not in ["GA4", "NEXT.JS", "VUE.JS", "B2B", "B2C", "3D", "2D"]:
                 continue
 
-            # 3. Reject email patterns (@, .com, gmail)
+            # 4. Reject email patterns (@, .com, gmail)
             if "@" in item or ".com" in item_lower or ".net" in item_lower or "gmail" in item_lower:
                 continue
 
-            # 4. Reject URLs, addresses, contact labels
+            # 5. Reject URLs, addresses, contact labels
             if any(c in item_lower for c in ["http", "www.", "contact", "address", "railway road", "location"]):
                 continue
 
-            # 5. Reject forbidden terms or sub-phrases
-            if any(f == item_upper or f in item_upper for f in forbidden_terms):
+            # 6. Forbidden exact check
+            if any(f == item_upper for f in forbidden_exact):
                 continue
 
-            # 6. Reject generic phrases (e.g. "on the basis", "quality leads", "driven by", "basis")
-            if any(phrase in item_lower for phrase in ["on the basis", "quality leads", "driven by", "focus on", "order to", "based on", "on the"]):
+            # 7. Reject sentence filler words, verbs, conjunctions
+            if re.search(stop_words_pattern, item_lower):
                 continue
 
-            # 7. Single word non-skill filter
-            if len(item.split()) == 1 and item_lower in {
-                "results", "cross", "and", "quality", "leads", "driven", "managed", "key", "team",
-                "with", "for", "from", "focus", "skills", "details", "summary", "about", "statement",
-                "objective", "profile", "references", "goals", "stakeholders", "satisfaction", "basis"
-            }:
-                continue
-
-            if len(item) < 2 or len(item) > 35:
+            # 8. Length limits
+            if len(item) < 2 or len(item) > 30:
                 continue
 
             if item not in cleaned:
