@@ -91,7 +91,10 @@ export default function ProfilePage() {
 
   const fetchProfile = async () => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-    if (!token) return;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
 
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
@@ -107,11 +110,11 @@ export default function ProfilePage() {
         setLocation(data.location || 'Lahore, Pakistan');
         setHeadline(data.headline || 'Senior Corporate Specialist');
         setBio(data.bio || '');
-        setSkills(data.skills || []);
-        setExperiences(data.experience || []);
-        setEducations(data.education || []);
+        setSkills(Array.isArray(data.skills) ? data.skills : []);
+        setExperiences(Array.isArray(data.experience) ? data.experience : []);
+        setEducations(Array.isArray(data.education) ? data.education : []);
         setMasterCvText(data.master_cv_url || '');
-        setUploadedCvs(data.uploaded_cvs || []);
+        setUploadedCvs(Array.isArray(data.uploaded_cvs) ? data.uploaded_cvs : []);
       }
     } catch (err) {
       console.warn('Fetch profile error:', err);
@@ -189,9 +192,9 @@ export default function ProfilePage() {
       setLocation(updated.location || '');
       setHeadline(updated.headline || '');
       setBio(updated.bio || '');
-      setSkills(updated.skills || []);
-      setExperiences(updated.experience || []);
-      setEducations(updated.education || []);
+      setSkills(Array.isArray(updated.skills) ? updated.skills : []);
+      setExperiences(Array.isArray(updated.experience) ? updated.experience : []);
+      setEducations(Array.isArray(updated.education) ? updated.education : []);
       setMasterCvText(updated.master_cv_url || '');
 
       setMessage('Profile fields successfully auto-filled from uploaded CV!');

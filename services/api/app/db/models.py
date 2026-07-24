@@ -65,8 +65,6 @@ class CandidateProfile(Base):
     
     # Raw Master CV Content or storage URL
     master_cv_url = Column(Text, nullable=True)
-    
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="candidate_profile")
 
