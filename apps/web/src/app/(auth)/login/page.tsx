@@ -2,11 +2,9 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Sparkles, ArrowRight, Lock, Mail, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Sparkles, ArrowRight, Lock, Mail, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   
@@ -22,57 +20,42 @@ export default function LoginPage() {
     bodyParams.append('username', email);
     bodyParams.append('password', password);
 
-    const apiEndpoints = [
-      process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/login` : null,
-      'http://127.0.0.1:8000/api/v1/auth/login',
-      'http://localhost:8000/api/v1/auth/login',
-    ].filter(Boolean) as string[];
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
-    let successData: any = null;
-    let lastErrorMessage = '';
+    try {
+      console.log(`[AlfaCareers Auth] Submitting login for ${email} at: ${backendUrl}`);
+      const response = await fetch(`${backendUrl}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
+        },
+        body: bodyParams.toString(),
+      });
 
-    for (const endpoint of apiEndpoints) {
-      try {
-        console.log(`[AlfaCareers Auth] Attempting login at: ${endpoint}`);
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json'
-          },
-          body: bodyParams.toString(),
-        });
+      const data = await response.json();
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.detail || 'Invalid email or password.');
-        }
-
-        successData = data;
-        break;
-      } catch (err: any) {
-        console.warn(`[AlfaCareers Auth] Connection to ${endpoint} failed:`, err);
-        lastErrorMessage = err.message || 'Failed to fetch';
+      if (!response.ok) {
+        throw new Error(data.detail || 'Invalid email or password.');
       }
-    }
 
-    setLoading(false);
-
-    if (successData) {
       if (typeof window !== 'undefined') {
-        localStorage.setItem('access_token', successData.access_token);
-        localStorage.setItem('user_id', successData.user_id);
-        localStorage.setItem('user_role', successData.role);
+        localStorage.setItem('access_token', data.access_token);
+        localStorage.setItem('user_id', data.user_id ? String(data.user_id) : '');
+        localStorage.setItem('user_role', data.role || 'candidate');
       }
-      // Redirect immediately to dashboard
-      router.push('/dashboard');
-    } else {
-      if (lastErrorMessage.includes('Failed to fetch') || lastErrorMessage.includes('NetworkError')) {
-        setError('Cannot connect to AlfaCareers backend API (http://127.0.0.1:8000). Please ensure the FastAPI server is running.');
+
+      // Hard navigation to trigger clean mount on dashboard
+      window.location.href = '/dashboard';
+    } catch (err: any) {
+      console.error(`[AlfaCareers Auth Error] Login failed:`, err);
+      if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
+        setError('Cannot connect to AlfaCareers API server (http://127.0.0.1:8000). Please ensure the server is running.');
       } else {
-        setError(lastErrorMessage);
+        setError(err.message || 'Invalid email or password.');
       }
+    } finally {
+      setLoading(false);
     }
   };
 

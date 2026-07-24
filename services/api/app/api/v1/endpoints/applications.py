@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.base import get_db
-from app.db.models import Application, JobPost, User, CandidateProfile, ApplicationStatus, ApplicationTrackType
+from app.db.models import ApplicationTrack, JobPost, User, CandidateProfile
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.ai_engine.vector_matcher import VectorMatcherEngine
 from app.core.email import send_welcome_email
@@ -17,16 +17,16 @@ vector_matcher = VectorMatcherEngine()
 
 class ApplicationCreateRequest(BaseModel):
     job_id: int
-    track_type: ApplicationTrackType = ApplicationTrackType.EMAIL
+    track_type: str = "email"
 
 
 class ApplicationResponse(BaseModel):
     id: int
     candidate_id: int
     job_id: int
-    status: ApplicationStatus
+    status: str
     match_score: float
-    track_type: ApplicationTrackType
+    track_type: str
     applied_at: datetime
     job_title: Optional[str] = None
     company_name: Optional[str] = None
@@ -65,7 +65,7 @@ async def submit_application(
 
     # Check duplicate application
     dup_res = await db.execute(
-        select(Application).where(Application.candidate_id == cand.id, Application.job_id == job.id)
+        select(ApplicationTrack).where(ApplicationTrack.candidate_id == cand.id, ApplicationTrack.job_id == job.id)
     )
     if dup_res.scalars().first():
         raise HTTPException(status_code=400, detail="You have already applied for this job opportunity.")
@@ -78,10 +78,10 @@ async def submit_application(
         job_description=job.description
     )
 
-    app_record = Application(
+    app_record = ApplicationTrack(
         candidate_id=cand.id,
         job_id=job.id,
-        status=ApplicationStatus.APPLIED,
+        status="applied",
         match_score=match_score,
         track_type=req.track_type,
         applied_at=datetime.now(timezone.utc)
@@ -120,7 +120,7 @@ async def list_candidate_applications(
     if not cand:
         return []
 
-    res = await db.execute(select(Application).where(Application.candidate_id == cand.id))
+    res = await db.execute(select(ApplicationTrack).where(ApplicationTrack.candidate_id == cand.id))
     apps = res.scalars().all()
     results = []
 
