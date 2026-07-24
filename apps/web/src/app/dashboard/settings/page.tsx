@@ -14,11 +14,16 @@ export default function SettingsPage() {
   const [autoApplyAlerts, setAutoApplyAlerts] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     if (!token) {
-      router.push('/login');
+      if (isMounted) router.push('/login');
     }
-    setLoading(false);
+    if (isMounted) setLoading(false);
+
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   const handleSave = (e: React.FormEvent) => {

@@ -12,8 +12,7 @@ import {
   Sparkles, 
   ChevronRight, 
   Menu, 
-  X,
-  FileText
+  X
 } from 'lucide-react';
 
 interface UserData {
@@ -28,28 +27,61 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const [user, setUser] = useState<UserData | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   useEffect(() => {
-    const fetchUser = async () => {
+    let isMounted = true;
+
+    const checkAuthAndFetchUser = async () => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-      if (!token) return;
+
+      if (!token) {
+        if (isMounted) {
+          setIsCheckingAuth(false);
+          router.push('/login');
+        }
+        return;
+      }
 
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
       try {
         const resp = await fetch(`${backendUrl}/api/v1/auth/me`, {
-          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+          headers: { 
+            'Authorization': `Bearer ${token}`, 
+            'Accept': 'application/json' 
+          }
         });
-        if (resp.ok) {
+
+        if (resp.status === 401) {
+          // Token is invalid or expired
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user_id');
+            localStorage.removeItem('user_role');
+          }
+          if (isMounted) router.push('/login');
+          return;
+        }
+
+        if (resp.ok && isMounted) {
           const data = await resp.json();
           setUser(data);
         }
       } catch (err) {
-        console.warn('Dashboard layout auth check warning:', err);
+        // Do NOT clear localStorage or redirect on network errors
+        console.warn('[Dashboard Guard] Network check notice:', err);
+      } finally {
+        if (isMounted) setIsCheckingAuth(false);
       }
     };
 
-    fetchUser();
-  }, []);
+    checkAuthAndFetchUser();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -66,6 +98,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { label: 'Application History', href: '/dashboard/applications', icon: Briefcase },
     { label: 'Account Settings', href: '/dashboard/settings', icon: Settings },
   ];
+
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="flex items-center space-x-3 text-blue-600 font-semibold text-xs">
+          <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <span>Verifying Session...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-900 selection:bg-blue-600 selection:text-white">
@@ -135,13 +178,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="p-4 border-t border-slate-100">
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/70 mb-3 flex items-center space-x-3">
             <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold flex items-center justify-center text-xs">
-              {user?.full_name ? user.full_name[0].toUpperCase() : 'U'}
+              {user?.full_name ? user.full_name[0].toUpperCase() : 'C'}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-bold text-slate-900 truncate">
                 {user?.full_name || 'Candidate User'}
               </p>
-              <p className="text-[10px] text-slate-500 truncate">{user?.email}</p>
+              <p className="text-[10px] text-slate-500 truncate">{user?.email || 'Logged In'}</p>
             </div>
           </div>
 

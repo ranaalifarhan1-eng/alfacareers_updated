@@ -30,8 +30,10 @@ export default function ApplicationsPage() {
     const fetchApplications = async () => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
       if (!token) {
-        router.push('/login');
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+          router.push('/login');
+        }
         return;
       }
 
@@ -42,7 +44,12 @@ export default function ApplicationsPage() {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (resp.status === 401) {
-          router.push('/login');
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user_id');
+            localStorage.removeItem('user_role');
+          }
+          if (isMounted) router.push('/login');
           return;
         }
         if (resp.ok && isMounted) {
@@ -50,7 +57,7 @@ export default function ApplicationsPage() {
           setApplications(Array.isArray(data) ? data : []);
         }
       } catch (err) {
-        console.warn('Fetch applications error:', err);
+        console.warn('Fetch applications notice:', err);
       } finally {
         if (isMounted) {
           clearTimeout(failsafe);

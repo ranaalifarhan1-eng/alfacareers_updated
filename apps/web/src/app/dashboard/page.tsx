@@ -74,7 +74,10 @@ export default function DashboardPage() {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
 
       if (!token) {
-        router.push('/login');
+        if (isMounted) {
+          setLoading(false);
+          router.push('/login');
+        }
         return;
       }
 
@@ -83,24 +86,33 @@ export default function DashboardPage() {
       // 1. Fetch User Data
       try {
         const userResp = await fetch(`${backendUrl}/api/v1/auth/me`, {
-          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+          headers: { 
+            'Authorization': `Bearer ${token}`, 
+            'Accept': 'application/json' 
+          }
         });
+        if (userResp.status === 401) {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('access_token');
+          }
+          if (isMounted) router.push('/login');
+          return;
+        }
         if (userResp.ok && isMounted) {
           const userData = await userResp.json();
           setUser(userData);
-        } else {
-          router.push('/login');
-          return;
         }
       } catch (err) {
-        router.push('/login');
-        return;
+        console.warn('User fetch notice:', err);
       }
 
       // 2. Fetch Candidate Vector Profile to Pre-fill Search Bar
       try {
         const profResp = await fetch(`${backendUrl}/api/v1/auth/profile`, {
-          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+          headers: { 
+            'Authorization': `Bearer ${token}`, 
+            'Accept': 'application/json' 
+          }
         });
         if (profResp.ok && isMounted) {
           const profData = await profResp.json();
@@ -112,13 +124,16 @@ export default function DashboardPage() {
           }
         }
       } catch (err) {
-        console.warn('Profile pre-fill warning:', err);
+        console.warn('Profile pre-fill notice:', err);
       }
 
       // 3. Fetch Vector Profile Matched Jobs Feed
       try {
         const matchedResp = await fetch(`${backendUrl}/api/v1/jobs/matched`, {
-          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+          headers: { 
+            'Authorization': `Bearer ${token}`, 
+            'Accept': 'application/json' 
+          }
         });
         if (matchedResp.ok && isMounted) {
           const matchedData = await matchedResp.json();
@@ -131,7 +146,7 @@ export default function DashboardPage() {
           }
         }
       } catch (err) {
-        console.warn('Live jobs fetch warning:', err);
+        console.warn('Live jobs fetch notice:', err);
       }
 
       // 4. Fetch Candidate Applications Count
@@ -144,7 +159,7 @@ export default function DashboardPage() {
           setApplicationsCount(appsData.length);
         }
       } catch (err) {
-        console.warn('Applications count fetch warning:', err);
+        console.warn('Applications count fetch notice:', err);
       }
 
       if (isMounted) setLoading(false);
@@ -326,7 +341,7 @@ export default function DashboardPage() {
               <span>Vector Profile Connected • Deep Web Hunter Active</span>
             </div>
             <h1 className="text-3xl font-black tracking-tight mb-2">
-              Welcome back, {user?.full_name || user?.email.split('@')[0]}!
+              Welcome back, {user?.full_name || user?.email.split('@')[0] || 'Candidate'}!
             </h1>
             <p className="text-blue-100 text-sm max-w-2xl leading-relaxed">
               Your candidate profile vector embeddings are actively matching un-syndicated roles based on target roles, skills, and recruiter AI summary.
