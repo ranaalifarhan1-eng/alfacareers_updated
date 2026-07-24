@@ -65,7 +65,8 @@ export default function LoginPage() {
         localStorage.setItem('user_id', successData.user_id);
         localStorage.setItem('user_role', successData.role);
       }
-      router.push('/');
+      // Redirect immediately to dashboard
+      router.push('/dashboard');
     } else {
       if (lastErrorMessage.includes('Failed to fetch') || lastErrorMessage.includes('NetworkError')) {
         setError('Cannot connect to AlfaCareers backend API (http://127.0.0.1:8000). Please ensure the FastAPI server is running.');

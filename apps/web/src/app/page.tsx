@@ -1,4 +1,6 @@
-import React from 'react';
+'use client';
+
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { 
   Search, 
@@ -16,10 +18,30 @@ import {
   MapPin, 
   TrendingUp,
   UserCheck,
-  Lock
+  Lock,
+  LogOut,
+  LayoutDashboard
 } from 'lucide-react';
 
 export default function Home() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('access_token');
+      setIsLoggedIn(!!token);
+    }
+  }, []);
+
+  const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('user_id');
+      localStorage.removeItem('user_role');
+      setIsLoggedIn(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col justify-between bg-gradient-to-b from-blue-50/40 via-white to-slate-50 selection:bg-blue-600 selection:text-white">
       {/* Header */}
@@ -55,18 +77,40 @@ export default function Home() {
           </nav>
 
           <div className="flex items-center space-x-3">
-            <Link 
-              href="/login"
-              className="px-4 py-2 text-sm font-semibold text-slate-700 hover:text-blue-600 hover:bg-slate-100/80 rounded-lg transition"
-            >
-              Sign In
-            </Link>
-            <Link 
-              href="/register"
-              className="px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-lg shadow-md shadow-blue-500/20 transition transform hover:-translate-y-0.5"
-            >
-              Get Started Free
-            </Link>
+            {isLoggedIn ? (
+              <>
+                <Link 
+                  href="/dashboard"
+                  className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md shadow-blue-500/20 transition flex items-center space-x-1.5"
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                  <span>Dashboard</span>
+                </Link>
+
+                <button
+                  onClick={handleLogout}
+                  className="px-3.5 py-2 text-sm font-semibold text-slate-600 hover:text-red-600 hover:bg-slate-100/80 rounded-lg transition flex items-center space-x-1.5"
+                >
+                  <LogOut className="w-4 h-4 text-slate-500 hover:text-red-600" />
+                  <span>Logout</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <Link 
+                  href="/login"
+                  className="px-4 py-2 text-sm font-semibold text-slate-700 hover:text-blue-600 hover:bg-slate-100/80 rounded-lg transition"
+                >
+                  Sign In
+                </Link>
+                <Link 
+                  href="/register"
+                  className="px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-lg shadow-md shadow-blue-500/20 transition transform hover:-translate-y-0.5"
+                >
+                  Get Started Free
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -116,7 +160,7 @@ export default function Home() {
               />
             </div>
 
-            <Link href="/register" className="w-full md:w-auto px-7 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 font-semibold text-sm text-white rounded-xl shadow-lg shadow-blue-600/25 transition flex items-center justify-center space-x-2 shrink-0">
+            <Link href={isLoggedIn ? "/dashboard" : "/register"} className="w-full md:w-auto px-7 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 font-semibold text-sm text-white rounded-xl shadow-lg shadow-blue-600/25 transition flex items-center justify-center space-x-2 shrink-0">
               <span>Hunt Hidden Jobs</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
@@ -236,7 +280,7 @@ export default function Home() {
                   <span className="text-xs font-semibold text-slate-500 block">Match Score</span>
                   <span className="text-xl font-black text-blue-600">96%</span>
                 </div>
-                <Link href="/register" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
+                <Link href={isLoggedIn ? "/dashboard" : "/register"} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
                   Auto-Apply Now
                 </Link>
               </div>
@@ -273,7 +317,7 @@ export default function Home() {
                   <span className="text-xs font-semibold text-slate-500 block">Match Score</span>
                   <span className="text-xl font-black text-indigo-600">91%</span>
                 </div>
-                <Link href="/register" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
+                <Link href={isLoggedIn ? "/dashboard" : "/register"} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
                   Auto-Apply Now
                 </Link>
               </div>
