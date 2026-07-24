@@ -18,7 +18,11 @@ import {
   ShieldCheck,
   Building2,
   TrendingUp,
-  LayoutDashboard
+  LayoutDashboard,
+  Download,
+  AlertCircle,
+  RefreshCw,
+  Send
 } from 'lucide-react';
 
 interface UserData {
@@ -29,13 +33,38 @@ interface UserData {
   company_name?: string;
 }
 
+interface JobPost {
+  id: number;
+  title: string;
+  company_name: string;
+  location: string;
+  job_type?: string;
+  salary_range?: string;
+  description: string;
+  apply_url?: string;
+  apply_email?: string;
+  authenticity_score: number;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<UserData | null>(null);
+  const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [applicationsCount, setApplicationsCount] = useState(0);
+  
   const [loading, setLoading] = useState(true);
+  const [hunting, setHunting] = useState(false);
+  const [applyingJobId, setApplyingJobId] = useState<number | null>(null);
+
+  // Hunt Form Inputs
+  const [huntDomain, setHuntDomain] = useState('engro.com/careers');
+  const [huntKeyword, setHuntKeyword] = useState('Finance');
+  
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchUserData = async () => {
+    const initDashboard = async () => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
 
       if (!token) {
@@ -43,33 +72,53 @@ export default function DashboardPage() {
         return;
       }
 
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+      // 1. Fetch User Data
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-        const response = await fetch(`${backendUrl}/api/v1/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json'
-          }
+        const userResp = await fetch(`${backendUrl}/api/v1/auth/me`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
         });
-
-        if (!response.ok) {
-          throw new Error('Session expired');
+        if (userResp.ok) {
+          const userData = await userResp.json();
+          setUser(userData);
+        } else {
+          router.push('/login');
+          return;
         }
-
-        const data = await response.json();
-        setUser(data);
       } catch (err) {
-        console.warn('Dashboard auth check error:', err);
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('access_token');
-        }
         router.push('/login');
-      } finally {
-        setLoading(false);
+        return;
       }
+
+      // 2. Fetch Live Jobs Feed
+      try {
+        const jobsResp = await fetch(`${backendUrl}/api/v1/jobs`);
+        if (jobsResp.ok) {
+          const jobsData = await jobsResp.json();
+          setJobs(jobsData);
+        }
+      } catch (err) {
+        console.warn('Live jobs fetch warning:', err);
+      }
+
+      // 3. Fetch Candidate Applications Count
+      try {
+        const appsResp = await fetch(`${backendUrl}/api/v1/applications`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (appsResp.ok) {
+          const appsData = await appsResp.json();
+          setApplicationsCount(appsData.length);
+        }
+      } catch (err) {
+        console.warn('Applications count fetch warning:', err);
+      }
+
+      setLoading(false);
     };
 
-    fetchUserData();
+    initDashboard();
   }, [router]);
 
   const handleLogout = () => {
@@ -81,12 +130,111 @@ export default function DashboardPage() {
     router.push('/login');
   };
 
+  // Trigger Deep Web Hunt live
+  const handleTriggerHunt = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setMessage(null);
+    setHunting(true);
+
+    const token = localStorage.getItem('access_token');
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+    try {
+      const resp = await fetch(`${backendUrl}/api/v1/jobs/hunt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain: huntDomain, keyword: huntKeyword })
+      });
+
+      if (!resp.ok) {
+        throw new Error('Failed to trigger Deep Web Hunt.');
+      }
+
+      const newJobs = await resp.json();
+      setMessage(`Deep Web Hunter discovered & indexed ${newJobs.length} new hidden job opportunities!`);
+      
+      // Refresh jobs list
+      const jobsResp = await fetch(`${backendUrl}/api/v1/jobs`);
+      if (jobsResp.ok) {
+        const jobsData = await jobsResp.json();
+        setJobs(jobsData);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error triggering hunt.');
+    } finally {
+      setHunting(false);
+    }
+  };
+
+  // Auto-Apply to job
+  const handleAutoApply = async (jobId: number) => {
+    setError(null);
+    setMessage(null);
+    setApplyingJobId(jobId);
+
+    const token = localStorage.getItem('access_token');
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+    try {
+      const resp = await fetch(`${backendUrl}/api/v1/applications/apply`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ job_id: jobId, track_type: 'email' })
+      });
+
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.detail || 'Failed to submit application.');
+      }
+
+      setMessage(`Application successfully submitted! Application email dispatched to HR.`);
+      setApplicationsCount(prev => prev + 1);
+    } catch (err: any) {
+      setError(err.message || 'Failed to apply.');
+    } finally {
+      setApplyingJobId(null);
+    }
+  };
+
+  // Download Tailored ATS Resume PDF
+  const handleDownloadATSResume = async (jobId: number, companyName: string) => {
+    const token = localStorage.getItem('access_token');
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+    try {
+      const resp = await fetch(`${backendUrl}/api/v1/jobs/${jobId}/compile-resume`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!resp.ok) {
+        throw new Error('Failed to generate ATS PDF.');
+      }
+
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ATS_Resume_Tailored_${companyName.replace(/\s+/g, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err: any) {
+      setError(err.message || 'Failed to download ATS resume.');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex items-center space-x-3 text-blue-600 font-semibold">
           <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-          <span>Loading Dashboard...</span>
+          <span>Loading Live Co-Pilot Dashboard...</span>
         </div>
       </div>
     );
@@ -149,19 +297,67 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Live Deep Web Hunt Trigger Bar */}
+        <div className="glass-card p-6 rounded-2xl mb-8">
+          <h2 className="text-base font-bold text-slate-900 mb-3 flex items-center space-x-2">
+            <Search className="w-4 h-4 text-blue-600" />
+            <span>Live Deep Web Hunter Trigger</span>
+          </h2>
+          <form onSubmit={handleTriggerHunt} className="flex flex-col sm:flex-row items-center gap-3">
+            <input
+              type="text"
+              required
+              value={huntDomain}
+              onChange={(e) => setHuntDomain(e.target.value)}
+              placeholder="Target domain (e.g. engro.com/careers)"
+              className="w-full sm:flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
+            />
+            <input
+              type="text"
+              value={huntKeyword}
+              onChange={(e) => setHuntKeyword(e.target.value)}
+              placeholder="Role keyword (e.g. Finance, Engineer)"
+              className="w-full sm:w-56 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-600"
+            />
+            <button
+              type="submit"
+              disabled={hunting}
+              className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-xs font-semibold text-white rounded-xl shadow-md transition flex items-center justify-center space-x-2 disabled:opacity-50 shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${hunting ? 'animate-spin' : ''}`} />
+              <span>{hunting ? 'Hunting Hidden Roles...' : 'Hunt Corporate Pages'}</span>
+            </button>
+          </form>
+        </div>
+
+        {/* Notifications */}
+        {message && (
+          <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{message}</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
         {/* Quick Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           <div className="glass-card p-6 rounded-2xl">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Matched Jobs</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Discovered Hidden Roles</span>
               <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
                 <Target className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-3xl font-extrabold text-slate-900">14</p>
+            <p className="text-3xl font-extrabold text-slate-900">{jobs.length}</p>
             <p className="text-xs text-blue-600 font-semibold mt-1 flex items-center space-x-1">
               <TrendingUp className="w-3 h-3" />
-              <span>90%+ Vector Match Score</span>
+              <span>Un-syndicated Ingest</span>
             </p>
           </div>
 
@@ -172,13 +368,13 @@ export default function DashboardPage() {
                 <Briefcase className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-3xl font-extrabold text-slate-900">3</p>
-            <p className="text-xs text-slate-500 mt-1">Dual-Track Auto Pilot</p>
+            <p className="text-3xl font-extrabold text-slate-900">{applicationsCount}</p>
+            <p className="text-xs text-slate-500 mt-1">Auto-Pilot HR Dispatch</p>
           </div>
 
           <div className="glass-card p-6 rounded-2xl">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Plan & Applies</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Plan & Balance</span>
               <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
                 <Zap className="w-4 h-4" />
               </div>
@@ -195,103 +391,85 @@ export default function DashboardPage() {
               </div>
             </div>
             <p className="text-3xl font-extrabold text-slate-900">v2.1</p>
-            <p className="text-xs text-slate-500 mt-1">Custom PDF Compiler Ready</p>
+            <p className="text-xs text-slate-500 mt-1">Tailored PDF Compiler Ready</p>
           </div>
         </div>
 
-        {/* Feed & Applications Section */}
+        {/* Live Jobs Feed Section */}
         <div className="space-y-6">
           <div className="flex items-center justify-between border-b border-slate-200/80 pb-4">
             <div className="flex items-center space-x-3">
               <LayoutDashboard className="w-5 h-5 text-blue-600" />
               <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-                Recommended Hidden Opportunities
+                Recommended Hidden Opportunities ({jobs.length})
               </h2>
             </div>
             <span className="text-xs text-slate-500 font-medium">
-              Updated 10 mins ago via Deep Web Hunter
+              Fetched via Deep Web Hunter & ChromaDB
             </span>
           </div>
 
-          {/* Job Item 1 */}
-          <div className="glass-card p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start space-x-4">
-              <div className="w-12 h-12 rounded-xl bg-blue-600 text-white font-black flex items-center justify-center text-lg shrink-0 shadow-md">
-                PK
-              </div>
-              <div>
-                <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                  <h3 className="text-lg font-bold text-slate-900">Senior Finance Manager</h3>
-                  <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center space-x-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>Authentic Verified</span>
-                  </span>
-                  <span className="px-2.5 py-0.5 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-full">
-                    Direct HR Email Found
-                  </span>
+          {jobs.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-2xl border border-slate-200">
+              <p className="text-slate-500 text-sm">No hidden jobs discovered yet.</p>
+              <p className="text-xs text-slate-400 mt-1">Use the Deep Web Hunter bar above to hunt corporate career pages.</p>
+            </div>
+          ) : (
+            jobs.map((job) => (
+              <div key={job.id} className="glass-card p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-start space-x-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-600 text-white font-black flex items-center justify-center text-lg shrink-0 shadow-md">
+                    {job.company_name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                      <h3 className="text-lg font-bold text-slate-900">{job.title}</h3>
+                      <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center space-x-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Auth Score: {job.authenticity_score}%</span>
+                      </span>
+                      {job.apply_email && (
+                        <span className="px-2.5 py-0.5 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-full">
+                          HR Email: {job.apply_email}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium text-slate-600 mt-1">
+                      {job.company_name} • {job.location} ({job.job_type || 'Full-time'})
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1.5 max-w-2xl leading-relaxed">
+                      {job.description}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm font-medium text-slate-600 mt-1">
-                  Engro Corporation • Lahore, Pakistan (On-site)
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  Discovered on `engro.com/careers` • Unlisted on standard job boards
-                </p>
-              </div>
-            </div>
 
-            <div className="flex items-center space-x-4 justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-slate-100">
-              <div className="text-right">
-                <span className="text-xs font-semibold text-slate-500 block">Vector Match</span>
-                <span className="text-xl font-black text-blue-600">96%</span>
-              </div>
-              <button className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
-                Auto-Apply Now
-              </button>
-            </div>
-          </div>
+                <div className="flex flex-col sm:flex-row items-center gap-3 justify-end border-t md:border-t-0 pt-3 md:pt-0 border-slate-100 shrink-0">
+                  <button
+                    onClick={() => handleDownloadATSResume(job.id, job.company_name)}
+                    className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition flex items-center justify-center space-x-1.5 border border-slate-200"
+                  >
+                    <Download className="w-3.5 h-3.5 text-slate-600" />
+                    <span>ATS Resume PDF</span>
+                  </button>
 
-          {/* Job Item 2 */}
-          <div className="glass-card p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start space-x-4">
-              <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white font-black flex items-center justify-center text-lg shrink-0 shadow-md">
-                AE
-              </div>
-              <div>
-                <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                  <h3 className="text-lg font-bold text-slate-900">Lead Operations Manager</h3>
-                  <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center space-x-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>Authentic Verified</span>
-                  </span>
-                  <span className="px-2.5 py-0.5 text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 rounded-full">
-                    Greenhouse Form Auto-Fill
-                  </span>
+                  <button
+                    onClick={() => handleAutoApply(job.id)}
+                    disabled={applyingJobId === job.id}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                  >
+                    <Send className={`w-3.5 h-3.5 ${applyingJobId === job.id ? 'animate-spin' : ''}`} />
+                    <span>{applyingJobId === job.id ? 'Applying...' : 'Auto-Apply Now'}</span>
+                  </button>
                 </div>
-                <p className="text-sm font-medium text-slate-600 mt-1">
-                  Careem Technologies • Dubai, UAE (Hybrid)
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  Discovered on `careem.com/jobs` • Crawled 1 hour ago
-                </p>
               </div>
-            </div>
-
-            <div className="flex items-center space-x-4 justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-slate-100">
-              <div className="text-right">
-                <span className="text-xs font-semibold text-slate-500 block">Vector Match</span>
-                <span className="text-xl font-black text-indigo-600">92%</span>
-              </div>
-              <button className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition">
-                Auto-Apply Now
-              </button>
-            </div>
-          </div>
+            ))
+          )}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-6 px-6 text-center text-xs text-slate-500">
-        <p>© 2026 AlfaCareers. All rights reserved. Registered under Master Blueprint v2.0.</p>
+      <footer className="border-t border-slate-200 bg-white py-6 px-6 text-center text-xs text-slate-500 mt-12">
+        <p>© 2026 AlfaCareers. All rights reserved. Powered by Deep Web Hunter v2.0.</p>
       </footer>
     </div>
   );

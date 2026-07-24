@@ -1,15 +1,17 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.base import get_db
-from app.db.models import JobPost, JobSourceType
+from app.db.models import JobPost, JobSourceType, User, CandidateProfile
 from app.services.deep_web_hunter.query_builder import DeepWebQueryBuilder
 from app.services.deep_web_hunter.crawler import CareerPageCrawler
 from app.services.ai_engine.llm_parser import OllamaJobStructurer
 from app.services.ai_engine.vector_store import VectorStoreService
+from app.services.pdf_compiler.ats_generator import ATSResumeCompiler
+from app.api.v1.endpoints.auth import get_current_user
 
 router = APIRouter()
 
@@ -17,6 +19,7 @@ query_builder = DeepWebQueryBuilder()
 crawler = CareerPageCrawler()
 llm_structurer = OllamaJobStructurer()
 vector_store = VectorStoreService()
+ats_compiler = ATSResumeCompiler()
 
 
 class JobHuntRequest(BaseModel):
@@ -117,3 +120,48 @@ async def list_jobs(
     """List published hidden jobs from database."""
     res = await db.execute(select(JobPost).where(JobPost.is_published == True).offset(skip).limit(limit))
     return res.scalars().all()
+
+
+@router.post("/{job_id}/compile-resume")
+async def compile_tailored_ats_resume(
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Generate single-page ATS-compliant PDF resume tailored specifically to target job posting.
+    """
+    res = await db.execute(select(JobPost).where(JobPost.id == job_id))
+    job = res.scalars().first()
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Target job posting not found")
+
+    # Fetch candidate profile
+    cand_res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == current_user.id))
+    cand = cand_res.scalars().first()
+
+    candidate_name = cand.full_name if cand else current_user.email.split("@")[0].capitalize()
+    location = cand.location if cand and cand.location else "Lahore, Pakistan"
+    headline = cand.headline if cand and cand.headline else "Senior Corporate Specialist"
+    skills = cand.skills if cand and cand.skills else ["Financial Analysis", "Strategic Operations", "Python", "Data Modeling"]
+
+    pdf_bytes = ats_compiler.compile_tailored_pdf(
+        candidate_name=candidate_name,
+        email=current_user.email,
+        phone="+92 300 1234567",
+        location=location,
+        headline=headline,
+        target_job_title=job.title,
+        target_company=job.company_name,
+        job_description=job.description,
+        skills=skills
+    )
+
+    filename = f"ATS_Resume_{candidate_name.replace(' ', '_')}_{job.company_name.replace(' ', '_')}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
