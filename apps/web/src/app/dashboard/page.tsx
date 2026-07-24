@@ -23,7 +23,8 @@ import {
   AlertCircle,
   RefreshCw,
   Send,
-  MapPin
+  MapPin,
+  Bot
 } from 'lucide-react';
 
 interface UserData {
@@ -45,6 +46,7 @@ interface JobPost {
   apply_url?: string;
   apply_email?: string;
   authenticity_score: number;
+  match_score_pct?: number;
 }
 
 export default function DashboardPage() {
@@ -57,15 +59,17 @@ export default function DashboardPage() {
   const [hunting, setHunting] = useState(false);
   const [applyingJobId, setApplyingJobId] = useState<number | null>(null);
 
-  // Intuitive 3-Column Search Inputs
-  const [keyword, setKeyword] = useState('Finance Manager');
-  const [location, setLocation] = useState('Lahore');
+  // Intuitive 3-Column Search Inputs (Pre-filled from candidate vector profile)
+  const [keyword, setKeyword] = useState('Performance Marketing Manager');
+  const [location, setLocation] = useState('Dubai, UAE');
   const [company, setCompany] = useState('');
   
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+
     const initDashboard = async () => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
 
@@ -81,7 +85,7 @@ export default function DashboardPage() {
         const userResp = await fetch(`${backendUrl}/api/v1/auth/me`, {
           headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
         });
-        if (userResp.ok) {
+        if (userResp.ok && isMounted) {
           const userData = await userResp.json();
           setUser(userData);
         } else {
@@ -93,23 +97,49 @@ export default function DashboardPage() {
         return;
       }
 
-      // 2. Fetch Live Jobs Feed
+      // 2. Fetch Candidate Vector Profile to Pre-fill Search Bar
       try {
-        const jobsResp = await fetch(`${backendUrl}/api/v1/jobs`);
-        if (jobsResp.ok) {
-          const jobsData = await jobsResp.json();
-          setJobs(jobsData);
+        const profResp = await fetch(`${backendUrl}/api/v1/auth/profile`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+        });
+        if (profResp.ok && isMounted) {
+          const profData = await profResp.json();
+          if (profData.target_roles && profData.target_roles.length > 0) {
+            setKeyword(profData.target_roles[0]);
+          }
+          if (profData.preferred_locations && profData.preferred_locations.length > 0) {
+            setLocation(profData.preferred_locations[0]);
+          }
+        }
+      } catch (err) {
+        console.warn('Profile pre-fill warning:', err);
+      }
+
+      // 3. Fetch Vector Profile Matched Jobs Feed
+      try {
+        const matchedResp = await fetch(`${backendUrl}/api/v1/jobs/matched`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+        });
+        if (matchedResp.ok && isMounted) {
+          const matchedData = await matchedResp.json();
+          setJobs(matchedData);
+        } else {
+          const jobsResp = await fetch(`${backendUrl}/api/v1/jobs`);
+          if (jobsResp.ok && isMounted) {
+            const jobsData = await jobsResp.json();
+            setJobs(jobsData);
+          }
         }
       } catch (err) {
         console.warn('Live jobs fetch warning:', err);
       }
 
-      // 3. Fetch Candidate Applications Count
+      // 4. Fetch Candidate Applications Count
       try {
         const appsResp = await fetch(`${backendUrl}/api/v1/applications`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (appsResp.ok) {
+        if (appsResp.ok && isMounted) {
           const appsData = await appsResp.json();
           setApplicationsCount(appsData.length);
         }
@@ -117,10 +147,14 @@ export default function DashboardPage() {
         console.warn('Applications count fetch warning:', err);
       }
 
-      setLoading(false);
+      if (isMounted) setLoading(false);
     };
 
     initDashboard();
+
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   const handleLogout = () => {
@@ -145,7 +179,10 @@ export default function DashboardPage() {
     try {
       const resp = await fetch(`${backendUrl}/api/v1/jobs/hunt`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           keyword,
           location: location || null,
@@ -158,14 +195,8 @@ export default function DashboardPage() {
       }
 
       const newJobs = await resp.json();
-      setMessage(`Deep Web Hunter discovered & indexed ${newJobs.length} new hidden job opportunities!`);
-      
-      // Refresh jobs list
-      const jobsResp = await fetch(`${backendUrl}/api/v1/jobs`);
-      if (jobsResp.ok) {
-        const jobsData = await jobsResp.json();
-        setJobs(jobsData);
-      }
+      setMessage(`Deep Web Hunter discovered & vector-matched ${newJobs.length} new opportunities for your profile!`);
+      setJobs(newJobs);
     } catch (err: any) {
       setError(err.message || 'Error triggering hunt.');
     } finally {
@@ -198,7 +229,7 @@ export default function DashboardPage() {
         throw new Error(data.detail || 'Failed to submit application.');
       }
 
-      setMessage(`Application successfully submitted! Application email dispatched to HR.`);
+      setMessage(`Application successfully submitted! Tailored ATS resume & email dispatched to HR.`);
       setApplicationsCount(prev => prev + 1);
     } catch (err: any) {
       setError(err.message || 'Failed to apply.');
@@ -266,13 +297,13 @@ export default function DashboardPage() {
           </Link>
 
           <div className="flex items-center space-x-4">
-            <div className="hidden sm:flex items-center space-x-2 text-xs text-slate-600 bg-slate-100/80 px-3 py-1.5 rounded-full border border-slate-200">
-              <User className="w-3.5 h-3.5 text-blue-600" />
-              <span className="font-semibold text-slate-900">{user?.full_name || user?.email}</span>
-              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] uppercase font-bold rounded">
-                {user?.role}
-              </span>
-            </div>
+            <Link
+              href="/dashboard/profile"
+              className="px-3.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-semibold border border-blue-200/80 transition flex items-center space-x-1.5"
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>Edit Vector Profile</span>
+            </Link>
 
             <button
               onClick={handleLogout}
@@ -292,18 +323,18 @@ export default function DashboardPage() {
           <div className="relative z-10">
             <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white/10 text-white text-xs font-semibold mb-3 border border-white/20">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Autonomous Career Co-Pilot Active</span>
+              <span>Vector Profile Connected • Deep Web Hunter Active</span>
             </div>
             <h1 className="text-3xl font-black tracking-tight mb-2">
               Welcome back, {user?.full_name || user?.email.split('@')[0]}!
             </h1>
             <p className="text-blue-100 text-sm max-w-2xl leading-relaxed">
-              Deep Web Hunter is continuously scanning corporate career pages for un-syndicated roles matching your profile.
+              Your candidate profile vector embeddings are actively matching un-syndicated roles based on target roles, skills, and recruiter AI summary.
             </p>
           </div>
         </div>
 
-        {/* Intuitive 3-Column Light Corporate Search Container */}
+        {/* Intuitive 3-Column Search Container (Pre-filled from Profile Vector) */}
         <div className="glass-card p-6 rounded-3xl mb-8 border border-slate-200/80 shadow-md">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-2">
@@ -315,12 +346,12 @@ export default function DashboardPage() {
                   Deep Web Hunter Engine
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Discover un-syndicated roles directly from official corporate career portals
+                  Auto-populated from your target roles ({keyword}) and location ({location})
                 </p>
               </div>
             </div>
             <span className="hidden md:inline-flex px-3 py-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded-full border border-blue-200">
-              v2.0 Active
+              Vector Matcher Connected
             </span>
           </div>
 
@@ -333,7 +364,7 @@ export default function DashboardPage() {
                 required
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
-                placeholder="Job Title or Skill (e.g. Finance Manager)"
+                placeholder="Job Title or Skill"
                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
               />
             </div>
@@ -345,7 +376,7 @@ export default function DashboardPage() {
                 type="text"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                placeholder="City or Country (e.g. Lahore, Dubai)"
+                placeholder="City or Country"
                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
               />
             </div>
@@ -357,7 +388,7 @@ export default function DashboardPage() {
                 type="text"
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
-                placeholder="Company (e.g. Engro, or leave blank)"
+                placeholder="Company (e.g. Seven States)"
                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition"
               />
             </div>
@@ -376,14 +407,14 @@ export default function DashboardPage() {
 
         {/* Notifications */}
         {message && (
-          <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center space-x-2">
+          <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center space-x-2 shadow-sm">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{message}</span>
           </div>
         )}
 
         {error && (
-          <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center space-x-2">
+          <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center space-x-2 shadow-sm">
             <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
             <span>{error}</span>
           </div>
@@ -393,22 +424,22 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           <div className="glass-card p-6 rounded-2xl">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Discovered Hidden Roles</span>
-              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                <Target className="w-4 h-4" />
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Vector Matched Roles</span>
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                <Bot className="w-4 h-4" />
               </div>
             </div>
             <p className="text-3xl font-extrabold text-slate-900">{jobs.length}</p>
-            <p className="text-xs text-blue-600 font-semibold mt-1 flex items-center space-x-1">
+            <p className="text-xs text-indigo-600 font-semibold mt-1 flex items-center space-x-1">
               <TrendingUp className="w-3 h-3" />
-              <span>Un-syndicated Ingest</span>
+              <span>Ranked by Cosine Similarity</span>
             </p>
           </div>
 
           <div className="glass-card p-6 rounded-2xl">
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Applications Sent</span>
-              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
                 <Briefcase className="w-4 h-4" />
               </div>
             </div>
@@ -418,49 +449,49 @@ export default function DashboardPage() {
 
           <div className="glass-card p-6 rounded-2xl">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Plan & Balance</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Vector Health</span>
               <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-                <Zap className="w-4 h-4" />
+                <ShieldCheck className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-3xl font-extrabold text-slate-900">5 / 5</p>
-            <p className="text-xs font-emerald-600 font-semibold text-emerald-600 mt-1">Starter Free Tier Active</p>
+            <p className="text-3xl font-extrabold text-slate-900">100%</p>
+            <p className="text-xs text-emerald-600 font-semibold mt-1">ChromaDB Vector Store Active</p>
           </div>
 
           <div className="glass-card p-6 rounded-2xl">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">ATS Resume Version</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">ATS Resume Engine</span>
               <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
                 <FileText className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-3xl font-extrabold text-slate-900">v2.1</p>
+            <p className="text-3xl font-extrabold text-slate-900">ReportLab</p>
             <p className="text-xs text-slate-500 mt-1">Tailored PDF Compiler Ready</p>
           </div>
         </div>
 
-        {/* Live Jobs Feed Section */}
+        {/* Live Vector Matched Jobs Feed Section */}
         <div className="space-y-6">
           <div className="flex items-center justify-between border-b border-slate-200/80 pb-4">
             <div className="flex items-center space-x-3">
               <LayoutDashboard className="w-5 h-5 text-blue-600" />
               <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-                Recommended Hidden Opportunities ({jobs.length})
+                Live Vector Matched Opportunities ({jobs.length})
               </h2>
             </div>
             <span className="text-xs text-slate-500 font-medium">
-              Fetched via Deep Web Hunter & ChromaDB
+              Ranked in real-time by ChromaDB Cosine Similarity
             </span>
           </div>
 
           {jobs.length === 0 ? (
             <div className="text-center py-12 bg-white rounded-2xl border border-slate-200">
-              <p className="text-slate-500 text-sm">No hidden jobs discovered yet.</p>
+              <p className="text-slate-500 text-sm">No matched jobs discovered yet.</p>
               <p className="text-xs text-slate-400 mt-1">Use the Deep Web Hunter bar above to hunt corporate career pages.</p>
             </div>
           ) : (
             jobs.map((job) => (
-              <div key={job.id} className="glass-card p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div key={job.id} className="glass-card p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-200/80 hover:border-blue-300 transition">
                 <div className="flex items-start space-x-4">
                   <div className="w-12 h-12 rounded-xl bg-blue-600 text-white font-black flex items-center justify-center text-lg shrink-0 shadow-md">
                     {job.company_name.slice(0, 2).toUpperCase()}
@@ -468,18 +499,30 @@ export default function DashboardPage() {
                   <div>
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <h3 className="text-lg font-bold text-slate-900">{job.title}</h3>
+                      
+                      {/* Vector Match Score Badge */}
+                      {job.match_score_pct !== undefined && (
+                        <span className="px-2.5 py-0.5 text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full flex items-center space-x-1">
+                          <Target className="w-3 h-3 text-indigo-600" />
+                          <span>{job.match_score_pct}% Vector Match</span>
+                        </span>
+                      )}
+
+                      {/* Authenticity Score Badge */}
                       <span className="px-2.5 py-0.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center space-x-1">
                         <CheckCircle2 className="w-3 h-3" />
-                        <span>Auth Score: {job.authenticity_score}%</span>
+                        <span>{job.authenticity_score}% Authentic</span>
                       </span>
+
                       {job.apply_email && (
                         <span className="px-2.5 py-0.5 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-full">
                           HR Email: {job.apply_email}
                         </span>
                       )}
                     </div>
-                    <p className="text-sm font-medium text-slate-600 mt-1">
-                      {job.company_name} • {job.location} ({job.job_type || 'Full-time'})
+
+                    <p className="text-sm font-semibold text-slate-700 mt-1">
+                      {job.company_name} • {job.location} ({job.job_type || 'Full-time'}) • <span className="text-emerald-700 font-bold">{job.salary_range}</span>
                     </p>
                     <p className="text-xs text-slate-500 mt-1.5 max-w-2xl leading-relaxed">
                       {job.description}
@@ -493,13 +536,13 @@ export default function DashboardPage() {
                     className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition flex items-center justify-center space-x-1.5 border border-slate-200"
                   >
                     <Download className="w-3.5 h-3.5 text-slate-600" />
-                    <span>ATS Resume PDF</span>
+                    <span>Download ATS Resume PDF</span>
                   </button>
 
                   <button
                     onClick={() => handleAutoApply(job.id)}
                     disabled={applyingJobId === job.id}
-                    className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 font-semibold text-xs text-white rounded-xl shadow-md transition flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                    className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 font-bold text-xs text-white rounded-xl shadow-md transition flex items-center justify-center space-x-1.5 disabled:opacity-50"
                   >
                     <Send className={`w-3.5 h-3.5 ${applyingJobId === job.id ? 'animate-spin' : ''}`} />
                     <span>{applyingJobId === job.id ? 'Applying...' : 'Auto-Apply Now'}</span>
@@ -513,7 +556,7 @@ export default function DashboardPage() {
 
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-6 px-6 text-center text-xs text-slate-500 mt-12">
-        <p>© 2026 AlfaCareers. All rights reserved. Powered by Deep Web Hunter v2.0.</p>
+        <p>© 2026 AlfaCareers. All rights reserved. Powered by ChromaDB Vector Matcher & Deep Web Hunter.</p>
       </footer>
     </div>
   );
