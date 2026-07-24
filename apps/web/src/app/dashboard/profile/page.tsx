@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   User, 
   Mail, 
@@ -52,6 +53,7 @@ interface UploadedCV {
 }
 
 export default function ProfilePage() {
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form States
@@ -86,40 +88,91 @@ export default function ProfilePage() {
   } | null>(null);
 
   useEffect(() => {
-    fetchProfile();
-  }, []);
+    let isMounted = true;
+    
+    // Failsafe timer: Force unhide spinner after 2.5 seconds no matter what
+    const failsafeTimer = setTimeout(() => {
+      if (isMounted) {
+        setLoading(false);
+      }
+    }, 2500);
 
-  const fetchProfile = async () => {
+    const initProfile = async () => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      
+      if (!token) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('access_token');
+        }
+        router.push('/login');
+        if (isMounted) setLoading(false);
+        return;
+      }
+
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+      try {
+        const resp = await fetch(`${backendUrl}/api/v1/auth/profile`, {
+          headers: { 
+            'Authorization': `Bearer ${token}`, 
+            'Accept': 'application/json' 
+          }
+        });
+
+        if (resp.status === 401) {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('access_token');
+          }
+          router.push('/login');
+          return;
+        }
+
+        if (resp.ok && isMounted) {
+          const data = await resp.json();
+          setFullName(data.full_name || '');
+          setPhone(data.phone || '');
+          setLocation(data.location || 'Lahore, Pakistan');
+          setHeadline(data.headline || 'Senior Corporate Specialist');
+          setBio(data.bio || '');
+          setSkills(Array.isArray(data.skills) ? data.skills : []);
+          setExperiences(Array.isArray(data.experience) ? data.experience : []);
+          setEducations(Array.isArray(data.education) ? data.education : []);
+          setMasterCvText(data.master_cv_url || '');
+          setUploadedCvs(Array.isArray(data.uploaded_cvs) ? data.uploaded_cvs : []);
+        }
+      } catch (err) {
+        console.warn('Fetch profile error:', err);
+      } finally {
+        if (isMounted) {
+          clearTimeout(failsafeTimer);
+          setLoading(false);
+        }
+      }
+    };
+
+    initProfile();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(failsafeTimer);
+    };
+  }, [router]);
+
+  const fetchProfileSilent = async () => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
 
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-
     try {
       const resp = await fetch(`${backendUrl}/api/v1/auth/profile`, {
         headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
       });
-
       if (resp.ok) {
         const data = await resp.json();
-        setFullName(data.full_name || '');
-        setPhone(data.phone || '');
-        setLocation(data.location || 'Lahore, Pakistan');
-        setHeadline(data.headline || 'Senior Corporate Specialist');
-        setBio(data.bio || '');
-        setSkills(Array.isArray(data.skills) ? data.skills : []);
-        setExperiences(Array.isArray(data.experience) ? data.experience : []);
-        setEducations(Array.isArray(data.education) ? data.education : []);
-        setMasterCvText(data.master_cv_url || '');
         setUploadedCvs(Array.isArray(data.uploaded_cvs) ? data.uploaded_cvs : []);
       }
     } catch (err) {
-      console.warn('Fetch profile error:', err);
-    } finally {
-      setLoading(false);
+      console.warn('Silent refresh profile error:', err);
     }
   };
 
@@ -155,7 +208,7 @@ export default function ProfilePage() {
       setModalOpen(true);
 
       // Refresh list of saved CVs
-      fetchProfile();
+      fetchProfileSilent();
     } catch (err: any) {
       setError(err.message || 'Error uploading CV.');
     } finally {

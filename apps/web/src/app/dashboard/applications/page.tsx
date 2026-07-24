@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Briefcase, CheckCircle2, Clock, Send, Sparkles, Building2 } from 'lucide-react';
 
 interface ApplicationItem {
@@ -16,13 +17,23 @@ interface ApplicationItem {
 }
 
 export default function ApplicationsPage() {
+  const router = useRouter();
   const [applications, setApplications] = useState<ApplicationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+    const failsafe = setTimeout(() => {
+      if (isMounted) setLoading(false);
+    }, 2500);
+
     const fetchApplications = async () => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-      if (!token) return;
+      if (!token) {
+        router.push('/login');
+        if (isMounted) setLoading(false);
+        return;
+      }
 
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
@@ -30,19 +41,31 @@ export default function ApplicationsPage() {
         const resp = await fetch(`${backendUrl}/api/v1/applications`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (resp.ok) {
+        if (resp.status === 401) {
+          router.push('/login');
+          return;
+        }
+        if (resp.ok && isMounted) {
           const data = await resp.json();
-          setApplications(data);
+          setApplications(Array.isArray(data) ? data : []);
         }
       } catch (err) {
         console.warn('Fetch applications error:', err);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          clearTimeout(failsafe);
+          setLoading(false);
+        }
       }
     };
 
     fetchApplications();
-  }, []);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(failsafe);
+    };
+  }, [router]);
 
   if (loading) {
     return (
