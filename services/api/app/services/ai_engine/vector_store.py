@@ -48,6 +48,39 @@ class VectorStoreService:
                 logger.warning(f"[VectorStore] Failed to index job #{job_id}: {e}")
         return False
 
+    def add_candidate_profile(
+        self,
+        candidate_id: int,
+        full_name: str,
+        headline: str,
+        skills: List[str],
+        target_roles: List[str],
+        ai_executive_summary: str,
+        metadata: Dict[str, Any]
+    ):
+        """Index a candidate profile into the vector store with AI Executive Summary & Skills."""
+        skills_text = ", ".join(skills) if skills else ""
+        roles_text = ", ".join(target_roles) if target_roles else ""
+        doc_text = f"Candidate: {full_name}\nHeadline: {headline}\nExecutive Summary: {ai_executive_summary}\nSkills: {skills_text}\nTarget Roles: {roles_text}"
+
+        if self.collection:
+            try:
+                self.collection.upsert(
+                    documents=[doc_text],
+                    metadatas=[{
+                        "candidate_id": str(candidate_id),
+                        "full_name": full_name,
+                        "headline": headline,
+                        **{k: str(v) for k, v in metadata.items() if v is not None}
+                    }],
+                    ids=[f"candidate_{candidate_id}"]
+                )
+                print(f"[VectorStore SUCCESS] Indexed Candidate #{candidate_id} ({full_name}) in ChromaDB Vector Store")
+                return True
+            except Exception as e:
+                logger.warning(f"[VectorStore] Candidate vector index notice: {e}")
+        return False
+
     def query_matching_jobs(self, query_text: str, n_results: int = 5) -> List[Dict[str, Any]]:
         """Perform vector similarity search for candidate queries or resume text."""
         if self.collection:

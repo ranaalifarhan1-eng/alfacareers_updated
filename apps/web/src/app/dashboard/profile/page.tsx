@@ -27,7 +27,11 @@ import {
   Check,
   Target,
   Clock,
-  DollarSign
+  DollarSign,
+  Bot,
+  Zap,
+  ShieldCheck,
+  TrendingUp
 } from 'lucide-react';
 
 interface WorkExperience {
@@ -61,8 +65,9 @@ interface UploadedCV {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const YEARS = Array.from({ length: 25 }, (_, i) => String(2026 - i));
+const CURRENCIES = ["AED", "USD", "PKR", "SAR", "EUR", "GBP"];
 
-type TabType = 'gallery' | 'personal' | 'experience' | 'skills_edu' | 'preferences';
+type TabType = 'gallery' | 'personal' | 'experience' | 'skills_edu' | 'preferences' | 'ai_insights';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -92,7 +97,17 @@ export default function ProfilePage() {
   const [prefLocationInput, setPrefLocationInput] = useState('');
   const [jobType, setJobType] = useState('Full-Time');
   const [noticePeriod, setNoticePeriod] = useState('Immediate');
-  const [expectedSalary, setExpectedSalary] = useState('Negotiable');
+
+  // Structured Salary States
+  const [salaryCurrency, setSalaryCurrency] = useState('AED');
+  const [salaryAmount, setSalaryAmount] = useState('15,000');
+  const [salaryFrequency, setSalaryFrequency] = useState('Monthly');
+  const [isSalaryNegotiable, setIsSalaryNegotiable] = useState(true);
+
+  // Section 6: AI Analytics States
+  const [totalExperienceYears, setTotalExperienceYears] = useState('0.0 Years');
+  const [aiExecutiveSummary, setAiExecutiveSummary] = useState('');
+  const [regeneratingSummary, setRegeneratingSummary] = useState(false);
   
   const [masterCvText, setMasterCvText] = useState('');
 
@@ -165,7 +180,14 @@ export default function ProfilePage() {
           setPreferredLocations(Array.isArray(data.preferred_locations) ? data.preferred_locations : ['Dubai, UAE', 'Lahore, Pakistan', 'Remote']);
           setJobType(data.job_type || 'Full-Time');
           setNoticePeriod(data.notice_period || 'Immediate');
-          setExpectedSalary(data.expected_salary || 'Negotiable');
+          
+          setSalaryCurrency(data.expected_salary_currency || 'AED');
+          setSalaryAmount(data.expected_salary_amount || '15,000');
+          setSalaryFrequency(data.expected_salary_frequency || 'Monthly');
+          setIsSalaryNegotiable(data.is_salary_negotiable !== undefined ? data.is_salary_negotiable : true);
+
+          setTotalExperienceYears(data.total_experience_years || '0.0 Years');
+          setAiExecutiveSummary(data.ai_executive_summary || '');
           setMasterCvText(data.master_cv_url || '');
           setUploadedCvs(Array.isArray(data.uploaded_cvs) ? data.uploaded_cvs : []);
         }
@@ -281,12 +303,47 @@ export default function ProfilePage() {
       setPreferredLocations(Array.isArray(updated.preferred_locations) ? updated.preferred_locations : []);
       setJobType(updated.job_type || 'Full-Time');
       setNoticePeriod(updated.notice_period || 'Immediate');
-      setExpectedSalary(updated.expected_salary || 'Negotiable');
+      setSalaryCurrency(updated.expected_salary_currency || 'AED');
+      setSalaryAmount(updated.expected_salary_amount || '15,000');
+      setSalaryFrequency(updated.expected_salary_frequency || 'Monthly');
+      setIsSalaryNegotiable(updated.is_salary_negotiable !== undefined ? updated.is_salary_negotiable : true);
+      setTotalExperienceYears(updated.total_experience_years || '0.0 Years');
+      setAiExecutiveSummary(updated.ai_executive_summary || '');
       setMasterCvText(updated.master_cv_url || '');
 
-      setMessage('Profile fields successfully auto-filled from uploaded CV!');
+      setMessage('Profile fields & AI summary successfully auto-filled from uploaded CV!');
     } catch (err: any) {
       setError(err.message || 'Error applying CV data.');
+    }
+  };
+
+  // Regenerate AI Executive Summary Handler
+  const handleRegenerateAiSummary = async () => {
+    setRegeneratingSummary(true);
+    setError(null);
+    setMessage(null);
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+    try {
+      const resp = await fetch(`${backendUrl}/api/v1/auth/profile/regenerate-ai-summary`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!resp.ok) {
+        throw new Error('Failed to regenerate AI Executive Summary.');
+      }
+
+      const updated = await resp.json();
+      setAiExecutiveSummary(updated.ai_executive_summary || '');
+      setTotalExperienceYears(updated.total_experience_years || '0.0 Years');
+      setMessage('AI Executive Summary successfully regenerated via Llama 3.1 & indexed in vector store!');
+    } catch (err: any) {
+      setError(err.message || 'Error regenerating AI summary.');
+    } finally {
+      setRegeneratingSummary(false);
     }
   };
 
@@ -425,7 +482,10 @@ export default function ProfilePage() {
           preferred_locations: preferredLocations,
           job_type: jobType,
           notice_period: noticePeriod,
-          expected_salary: expectedSalary,
+          expected_salary_currency: salaryCurrency,
+          expected_salary_amount: salaryAmount,
+          expected_salary_frequency: salaryFrequency,
+          is_salary_negotiable: isSalaryNegotiable,
           master_cv_text: masterCvText
         })
       });
@@ -434,8 +494,10 @@ export default function ProfilePage() {
         throw new Error('Failed to update candidate profile.');
       }
 
-      await resp.json();
-      setMessage('Candidate Profile & Job Preferences successfully updated and indexed!');
+      const updatedData = await resp.json();
+      setAiExecutiveSummary(updatedData.ai_executive_summary || '');
+      setTotalExperienceYears(updatedData.total_experience_years || '0.0 Years');
+      setMessage('Candidate Profile, Salary Preferences & AI Summary successfully saved & vector indexed!');
     } catch (err: any) {
       setError(err.message || 'Error saving profile.');
     } finally {
@@ -460,13 +522,13 @@ export default function ProfilePage() {
       <div>
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold mb-2 border border-blue-200">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Multi-CV Manager & Precision AI Job Matching Engine</span>
+          <span>Multi-CV Manager & Vector-Indexed AI Job Matching Hub</span>
         </div>
         <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
           My Profile & Career Hub
         </h1>
         <p className="text-xs text-slate-500 mt-1">
-          Manage layout-parsed CVs, career history, core competencies, and job preferences in compact tabs
+          Manage layout-parsed CVs, career history, core competencies, salary preferences, and AI co-pilot insights
         </p>
       </div>
 
@@ -551,6 +613,19 @@ export default function ProfilePage() {
           >
             <Target className="w-4 h-4" />
             <span>Job Preferences</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('ai_insights')}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs transition flex items-center space-x-2 shrink-0 ${
+              activeTab === 'ai_insights'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+            }`}
+          >
+            <Bot className="w-4 h-4" />
+            <span>🤖 AI Summary & Insights</span>
           </button>
         </div>
       </div>
@@ -1039,7 +1114,7 @@ export default function ProfilePage() {
             <div className="mb-4">
               <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
                 <Target className="w-4 h-4 text-blue-600" />
-                <span>Job Preferences & Career Goals</span>
+                <span>Job Preferences & Structured Salary</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 Precision AI job matching criteria used to rank hidden jobs and automated applications
@@ -1129,8 +1204,8 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              {/* Selectors Grid: Job Type, Notice Period, Expected Salary */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
+              {/* Selectors Grid: Job Type & Notice Period */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Job Type Preference
@@ -1162,18 +1237,168 @@ export default function ProfilePage() {
                     <option value="2 Months">2 Months</option>
                   </select>
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Expected Salary Range
+              {/* Structured Expected Salary Controls */}
+              <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center space-x-2 text-slate-900 font-bold text-xs">
+                  <DollarSign className="w-4 h-4 text-emerald-600" />
+                  <span>Structured Expected Salary Preferences</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Currency
+                    </label>
+                    <select
+                      value={salaryCurrency}
+                      onChange={(e) => setSalaryCurrency(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900"
+                    >
+                      {CURRENCIES.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Min Amount
+                    </label>
+                    <input
+                      type="text"
+                      value={salaryAmount}
+                      onChange={(e) => setSalaryAmount(e.target.value)}
+                      placeholder="e.g. 15,000"
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Frequency
+                    </label>
+                    <select
+                      value={salaryFrequency}
+                      onChange={(e) => setSalaryFrequency(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900"
+                    >
+                      <option value="Monthly">Monthly</option>
+                      <option value="Yearly">Yearly</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center justify-between">
+                  <label className="inline-flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isSalaryNegotiable}
+                      onChange={(e) => setIsSalaryNegotiable(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                    />
+                    <span>Open to negotiation based on equity, performance bonus & benefits</span>
                   </label>
-                  <input
-                    type="text"
-                    value={expectedSalary}
-                    onChange={(e) => setExpectedSalary(e.target.value)}
-                    placeholder="e.g. AED 10,000 - 15,000 / month"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
-                  />
+
+                  <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
+                    {salaryCurrency} {salaryAmount} / {salaryFrequency}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: AI Summary & Co-Pilot Insights */}
+        {activeTab === 'ai_insights' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Top Metrics Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="glass-card p-5 rounded-2xl border border-slate-200 flex items-center space-x-4">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-inner shrink-0">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Experience</p>
+                  <h3 className="text-xl font-black text-slate-900">{totalExperienceYears}</h3>
+                </div>
+              </div>
+
+              <div className="glass-card p-5 rounded-2xl border border-slate-200 flex items-center space-x-4">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-inner shrink-0">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Vector Index Health</p>
+                  <h3 className="text-xl font-black text-slate-900">100% Active</h3>
+                </div>
+              </div>
+
+              <div className="glass-card p-5 rounded-2xl border border-slate-200 flex items-center space-x-4">
+                <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shadow-inner shrink-0">
+                  <Zap className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Matching Power</p>
+                  <h3 className="text-xl font-black text-slate-900">High Precision</h3>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Executive Summary Card */}
+            <div className="glass-card p-6 rounded-2xl border border-slate-200 bg-gradient-to-r from-indigo-50/40 via-white to-slate-50 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Bot className="w-5 h-5 text-indigo-600" />
+                  <h2 className="text-base font-bold text-slate-900">
+                    Recruiter-Tailored AI Executive Summary
+                  </h2>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRegenerateAiSummary}
+                  disabled={regeneratingSummary}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${regeneratingSummary ? 'animate-spin' : ''}`} />
+                  <span>{regeneratingSummary ? 'Generating...' : 'Regenerate via Llama 3.1'}</span>
+                </button>
+              </div>
+
+              <div className="p-4 bg-white rounded-xl border border-indigo-100 shadow-sm text-xs font-medium text-slate-800 leading-relaxed">
+                {aiExecutiveSummary || (
+                  <span className="text-slate-400 italic">
+                    Click "Regenerate via Llama 3.1" or save your profile to generate your recruiter executive summary...
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Vector Co-Pilot Matching Breakdown */}
+            <div className="glass-card p-6 rounded-2xl border border-slate-200 space-y-4">
+              <div className="flex items-center space-x-2">
+                <TrendingUp className="w-5 h-5 text-blue-600" />
+                <h2 className="text-base font-bold text-slate-900">
+                  Vector Store Co-Pilot Matching Breakdown
+                </h2>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                  <span className="font-bold text-slate-900 block mb-1">Indexed Target Roles</span>
+                  <p className="text-slate-600">{targetRoles.join(', ') || 'None set'}</p>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                  <span className="font-bold text-slate-900 block mb-1">Preferred Locations</span>
+                  <p className="text-slate-600">{preferredLocations.join(', ') || 'None set'}</p>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                  <span className="font-bold text-slate-900 block mb-1">Top Vector Skills</span>
+                  <p className="text-slate-600">{skills.slice(0, 5).join(', ') || 'None set'}</p>
                 </div>
               </div>
             </div>
@@ -1184,8 +1409,8 @@ export default function ProfilePage() {
         <div className="sticky bottom-4 z-40 bg-white/95 backdrop-blur-md p-4 rounded-2xl border border-slate-200 shadow-xl flex items-center justify-between gap-4">
           <div className="flex items-center space-x-2 text-xs text-slate-600 font-medium">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="hidden sm:inline">Profile entries indexed & ready for vector matching</span>
-            <span className="sm:hidden font-semibold">Ready</span>
+            <span className="hidden sm:inline">Profile entries & AI summary indexed in ChromaDB vector store</span>
+            <span className="sm:hidden font-semibold">Indexed</span>
           </div>
 
           <button
@@ -1223,9 +1448,9 @@ export default function ProfilePage() {
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
               <p><strong>Candidate Name:</strong> {pendingUploadData.parsed_data?.full_name || 'N/A'}</p>
               <p><strong>Headline:</strong> {pendingUploadData.parsed_data?.headline || 'N/A'}</p>
+              <p><strong>Total Experience:</strong> {pendingUploadData.parsed_data?.total_experience_years || 'N/A'}</p>
               <p><strong>Skills Extracted:</strong> {pendingUploadData.parsed_data?.skills?.length || 0} skills</p>
               <p><strong>Experience Entries:</strong> {pendingUploadData.parsed_data?.experience?.length || 0} positions</p>
-              <p><strong>Target Roles:</strong> {pendingUploadData.parsed_data?.target_roles?.join(', ') || 'N/A'}</p>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">

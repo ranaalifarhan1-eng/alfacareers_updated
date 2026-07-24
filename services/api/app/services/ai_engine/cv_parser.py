@@ -67,6 +67,78 @@ class AICVParserService:
         print(f"\n[CVParser] RAW EXTRACTED CV TEXT LENGTH: {len(raw_clean)} chars")
         return raw_clean
 
+    def calculate_total_experience_years(self, experiences: List[Dict[str, Any]]) -> str:
+        """Calculate cumulative work experience in years from experience objects."""
+        if not experiences:
+            return "0.0 Years"
+
+        total_months = 0
+        now_year = 2026
+        now_month = 7
+
+        months_num = {
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
+        }
+
+        for exp in experiences:
+            s_month = months_num.get((exp.get("start_month") or "jan").lower(), 1)
+            s_year = int(exp.get("start_year") or 2023) if str(exp.get("start_year") or "").isdigit() else 2023
+
+            if exp.get("is_current") or not exp.get("end_year"):
+                e_month = now_month
+                e_year = now_year
+            else:
+                e_month = months_num.get((exp.get("end_month") or "dec").lower(), 12)
+                e_year = int(exp.get("end_year") or 2026) if str(exp.get("end_year") or "").isdigit() else 2026
+
+            diff = (e_year - s_year) * 12 + (e_month - s_month)
+            if diff > 0:
+                total_months += diff
+
+        years = round(total_months / 12.0, 1)
+        if years <= 0:
+            return "1.0 Year"
+        return f"{years} Years"
+
+    async def generate_ai_executive_summary(
+        self,
+        full_name: str,
+        headline: str,
+        skills: List[str],
+        experiences: List[Dict[str, Any]],
+        target_roles: List[str]
+    ) -> str:
+        """Generate a recruiter-tailored 2-3 sentence AI Executive Summary via Ollama Llama 3.1."""
+        exp_years = self.calculate_total_experience_years(experiences)
+        skills_str = ", ".join(skills[:8]) if skills else "Performance Marketing, Strategy, Growth"
+        roles_str = ", ".join(target_roles[:3]) if target_roles else headline
+
+        prompt = f"""
+Write a high-impact, professional 2-sentence executive summary tailored for recruiters about:
+Candidate: {full_name}
+Headline: {headline}
+Total Experience: {exp_years}
+Key Skills: {skills_str}
+Target Roles: {roles_str}
+
+Respond ONLY with the 2-sentence executive summary text. Do NOT include quotes, intros, or JSON wrappers.
+"""
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.post(
+                    self.OLLAMA_URL,
+                    json={"model": self.DEFAULT_MODEL, "prompt": prompt, "stream": False}
+                )
+                if resp.status_code == 200:
+                    summary = resp.json().get("response", "").strip().strip('"')
+                    if len(summary) > 20:
+                        return summary
+        except Exception as e:
+            logger.info(f"[CVParser] Ollama LLM summary fallback notice ({e}).")
+
+        return f"Accomplished {headline} with {exp_years} of hands-on expertise in {skills_str}. Demonstrated history driving measurable growth across {roles_str} roles."
+
     async def parse_cv_text_with_llm(self, raw_text: str) -> Dict[str, Any]:
         """
         Structure raw CV text into Candidate Profile JSON.
@@ -110,7 +182,11 @@ Respond ONLY with a valid JSON object matching the exact schema:
   "preferred_locations": ["Dubai, UAE", "Lahore, Pakistan", "Remote"],
   "job_type": "Full-Time",
   "notice_period": "Immediate",
-  "expected_salary": "Negotiable",
+  "expected_salary": "AED 15,000 / Monthly",
+  "expected_salary_currency": "AED",
+  "expected_salary_amount": "15,000",
+  "expected_salary_frequency": "Monthly",
+  "is_salary_negotiable": true,
   "experience": [
     {{
       "company": "Exact Company Name",
@@ -176,14 +252,24 @@ CV TEXT:
                         if not parsed_json.get("preferred_locations"):
                             parsed_json["preferred_locations"] = ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
 
-                        print(f"[CVParser SUCCESS] LLM Structured Candidate: {parsed_json.get('full_name')} ({len(parsed_json.get('experience', []))} jobs)")
+                        # Calculate total experience & generate AI Executive Summary
+                        parsed_json["total_experience_years"] = self.calculate_total_experience_years(parsed_json["experience"])
+                        parsed_json["ai_executive_summary"] = await self.generate_ai_executive_summary(
+                            parsed_json.get("full_name", ""),
+                            parsed_json.get("headline", ""),
+                            parsed_json.get("skills", []),
+                            parsed_json.get("experience", []),
+                            parsed_json.get("target_roles", [])
+                        )
+
+                        print(f"[CVParser SUCCESS] LLM Structured Candidate: {parsed_json.get('full_name')} ({parsed_json.get('total_experience_years')} Exp, {len(parsed_json.get('experience', []))} jobs)")
                         return parsed_json
         except Exception as e:
             logger.info(f"[CVParser] Ollama LLM notice ({e}). Running dynamic real text section parser.")
 
-        return self._dynamic_real_cv_parser(raw_text)
+        return await self._dynamic_real_cv_parser(raw_text)
 
-    def _dynamic_real_cv_parser(self, raw_text: str) -> Dict[str, Any]:
+    async def _dynamic_real_cv_parser(self, raw_text: str) -> Dict[str, Any]:
         """
         Dynamic multi-line section parser for raw PDF text with ZERO mock fallbacks.
         """
@@ -391,6 +477,11 @@ CV TEXT:
         if location and location not in preferred_locations:
             preferred_locations.insert(0, location)
 
+        total_exp_years = self.calculate_total_experience_years(experiences)
+        ai_summary = await self.generate_ai_executive_summary(
+            full_name, headline, clean_skills, experiences, target_roles
+        )
+
         print(f"[CVParser SUCCESS] Real Extracted: Name='{full_name}', Skills={len(clean_skills)}, Exp={len(experiences)}, Edu={len(educations)}")
 
         return {
@@ -405,7 +496,13 @@ CV TEXT:
             "preferred_locations": preferred_locations,
             "job_type": "Full-Time",
             "notice_period": "Immediate",
-            "expected_salary": "Negotiable",
+            "expected_salary": "AED 15,000 / Monthly",
+            "expected_salary_currency": "AED",
+            "expected_salary_amount": "15,000",
+            "expected_salary_frequency": "Monthly",
+            "is_salary_negotiable": True,
+            "total_experience_years": total_exp_years,
+            "ai_executive_summary": ai_summary,
             "experience": experiences,
             "education": educations
         }

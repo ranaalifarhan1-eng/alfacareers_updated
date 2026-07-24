@@ -13,11 +13,13 @@ from app.core.security import get_password_hash, verify_password, create_access_
 from app.core.config import settings
 from app.core.email import send_welcome_email
 from app.services.ai_engine.cv_parser import AICVParserService
+from app.services.ai_engine.vector_store import VectorStoreService
 
 router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 cv_parser = AICVParserService()
+vector_store = VectorStoreService(collection_name="candidates_vector_store")
 
 
 # --- Pydantic Schemas ---
@@ -88,6 +90,12 @@ class CandidateProfileDetailResponse(BaseModel):
     job_type: str = "Full-Time"
     notice_period: str = "Immediate"
     expected_salary: str = "Negotiable"
+    expected_salary_currency: str = "AED"
+    expected_salary_amount: str = "15,000"
+    expected_salary_frequency: str = "Monthly"
+    is_salary_negotiable: bool = True
+    total_experience_years: str = "0.0 Years"
+    ai_executive_summary: Optional[str] = None
     master_cv_url: Optional[str] = None
     uploaded_cvs: List[CandidateCVResponse] = []
 
@@ -106,6 +114,10 @@ class CandidateProfileUpdateRequest(BaseModel):
     job_type: Optional[str] = None
     notice_period: Optional[str] = None
     expected_salary: Optional[str] = None
+    expected_salary_currency: Optional[str] = None
+    expected_salary_amount: Optional[str] = None
+    expected_salary_frequency: Optional[str] = None
+    is_salary_negotiable: Optional[bool] = None
     master_cv_text: Optional[str] = None
 
 
@@ -401,7 +413,24 @@ async def get_candidate_profile(
     preferred_locations = getattr(cp, 'preferred_locations', None) or ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
     job_type = getattr(cp, 'job_type', None) or "Full-Time"
     notice_period = getattr(cp, 'notice_period', None) or "Immediate"
-    expected_salary = getattr(cp, 'expected_salary', None) or "Negotiable"
+    
+    expected_salary_currency = getattr(cp, 'expected_salary_currency', None) or "AED"
+    expected_salary_amount = getattr(cp, 'expected_salary_amount', None) or "15,000"
+    expected_salary_frequency = getattr(cp, 'expected_salary_frequency', None) or "Monthly"
+    is_salary_negotiable = getattr(cp, 'is_salary_negotiable', True) if getattr(cp, 'is_salary_negotiable', None) is not None else True
+
+    expected_salary = f"{expected_salary_currency} {expected_salary_amount} / {expected_salary_frequency}"
+
+    total_exp_years = getattr(cp, 'total_experience_years', None) or cv_parser.calculate_total_experience_years(cp.experience or [])
+    ai_summary = getattr(cp, 'ai_executive_summary', None)
+    if not ai_summary:
+        ai_summary = await cv_parser.generate_ai_executive_summary(
+            cp.full_name, cp.headline or "Senior Specialist", clean_skills, cp.experience or [], target_roles
+        )
+        cp.ai_executive_summary = ai_summary
+        cp.total_experience_years = total_exp_years
+        db.add(cp)
+        await db.commit()
 
     return CandidateProfileDetailResponse(
         id=cp.id,
@@ -421,6 +450,12 @@ async def get_candidate_profile(
         job_type=job_type,
         notice_period=notice_period,
         expected_salary=expected_salary,
+        expected_salary_currency=expected_salary_currency,
+        expected_salary_amount=expected_salary_amount,
+        expected_salary_frequency=expected_salary_frequency,
+        is_salary_negotiable=is_salary_negotiable,
+        total_experience_years=total_exp_years,
+        ai_executive_summary=ai_summary,
         master_cv_url=cp.master_cv_url,
         uploaded_cvs=formatted_cvs
     )
@@ -459,6 +494,8 @@ async def update_candidate_profile(
             item["location"] = cv_parser._sanitize_location(item.get("location", ""))
             sanitized_exp.append(item)
         cp.experience = sanitized_exp
+        cp.total_experience_years = cv_parser.calculate_total_experience_years(sanitized_exp)
+
     if req.education is not None:
         cp.education = req.education
     if req.target_roles is not None:
@@ -469,15 +506,44 @@ async def update_candidate_profile(
         cp.job_type = req.job_type
     if req.notice_period is not None:
         cp.notice_period = req.notice_period
-    if req.expected_salary is not None:
-        cp.expected_salary = req.expected_salary
+
+    if req.expected_salary_currency is not None:
+        cp.expected_salary_currency = req.expected_salary_currency
+    if req.expected_salary_amount is not None:
+        cp.expected_salary_amount = req.expected_salary_amount
+    if req.expected_salary_frequency is not None:
+        cp.expected_salary_frequency = req.expected_salary_frequency
+    if req.is_salary_negotiable is not None:
+        cp.is_salary_negotiable = req.is_salary_negotiable
+
+    curr = cp.expected_salary_currency or "AED"
+    amt = cp.expected_salary_amount or "15,000"
+    freq = cp.expected_salary_frequency or "Monthly"
+    cp.expected_salary = f"{curr} {amt} / {freq}"
+
     if req.master_cv_text is not None:
         cp.master_cv_url = req.master_cv_text
+
+    # Re-generate AI summary
+    cp.ai_executive_summary = await cv_parser.generate_ai_executive_summary(
+        cp.full_name, cp.headline or "Senior Specialist", cp.skills or [], cp.experience or [], cp.target_roles or []
+    )
 
     await db.commit()
     await db.refresh(cp)
 
-    print(f"\n[Profile SUCCESS] Updated profile for candidate: {cp.full_name} ({current_user.email})")
+    # Index into ChromaDB Vector Store
+    vector_store.add_candidate_profile(
+        candidate_id=cp.id,
+        full_name=cp.full_name,
+        headline=cp.headline or "",
+        skills=cp.skills or [],
+        target_roles=cp.target_roles or [],
+        ai_executive_summary=cp.ai_executive_summary or "",
+        metadata={"location": cp.location, "user_id": cp.user_id}
+    )
+
+    print(f"\n[Profile SUCCESS] Updated profile & vector indexed for candidate: {cp.full_name}")
 
     # Fetch uploaded CVs
     cv_res = await db.execute(select(CandidateCV).where(CandidateCV.user_id == current_user.id).order_by(CandidateCV.created_at.desc()))
@@ -487,12 +553,6 @@ async def update_candidate_profile(
             id=c.id, filename=c.filename, file_url=c.file_url, parsed_json=c.parsed_json or {}, is_primary=c.is_primary, created_at=c.created_at.isoformat() if c.created_at else datetime.now(timezone.utc).isoformat()
         ) for c in cvs
     ]
-
-    target_roles = getattr(cp, 'target_roles', None) or ["Performance Marketing Manager", "Digital Marketer"]
-    preferred_locations = getattr(cp, 'preferred_locations', None) or ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
-    job_type = getattr(cp, 'job_type', None) or "Full-Time"
-    notice_period = getattr(cp, 'notice_period', None) or "Immediate"
-    expected_salary = getattr(cp, 'expected_salary', None) or "Negotiable"
 
     return CandidateProfileDetailResponse(
         id=cp.id,
@@ -507,14 +567,53 @@ async def update_candidate_profile(
         skills=cp.skills or [],
         experience=cp.experience or [],
         education=cp.education or [],
-        target_roles=target_roles,
-        preferred_locations=preferred_locations,
-        job_type=job_type,
-        notice_period=notice_period,
-        expected_salary=expected_salary,
+        target_roles=cp.target_roles or [],
+        preferred_locations=cp.preferred_locations or [],
+        job_type=cp.job_type or "Full-Time",
+        notice_period=cp.notice_period or "Immediate",
+        expected_salary=cp.expected_salary,
+        expected_salary_currency=cp.expected_salary_currency or "AED",
+        expected_salary_amount=cp.expected_salary_amount or "15,000",
+        expected_salary_frequency=cp.expected_salary_frequency or "Monthly",
+        is_salary_negotiable=cp.is_salary_negotiable if cp.is_salary_negotiable is not None else True,
+        total_experience_years=cp.total_experience_years or "0.0 Years",
+        ai_executive_summary=cp.ai_executive_summary,
         master_cv_url=cp.master_cv_url,
         uploaded_cvs=formatted_cvs
     )
+
+
+@router.post("/profile/regenerate-ai-summary", response_model=CandidateProfileDetailResponse)
+async def regenerate_ai_summary(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Regenerate AI Executive Summary via Ollama Llama 3.1."""
+    res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == current_user.id))
+    cp = res.scalars().first()
+
+    if not cp:
+        raise HTTPException(status_code=404, detail="Candidate profile not found")
+
+    cp.total_experience_years = cv_parser.calculate_total_experience_years(cp.experience or [])
+    cp.ai_executive_summary = await cv_parser.generate_ai_executive_summary(
+        cp.full_name, cp.headline or "Senior Specialist", cp.skills or [], cp.experience or [], cp.target_roles or []
+    )
+
+    await db.commit()
+    await db.refresh(cp)
+
+    vector_store.add_candidate_profile(
+        candidate_id=cp.id,
+        full_name=cp.full_name,
+        headline=cp.headline or "",
+        skills=cp.skills or [],
+        target_roles=cp.target_roles or [],
+        ai_executive_summary=cp.ai_executive_summary or "",
+        metadata={"location": cp.location, "user_id": cp.user_id}
+    )
+
+    return await get_candidate_profile(current_user=current_user, db=db)
 
 
 @router.post("/profile/upload-cv")
@@ -606,6 +705,7 @@ async def apply_cv_parsed_to_profile(
             item["location"] = cv_parser._sanitize_location(item.get("location", ""))
             sanitized_exp.append(item)
         cp.experience = sanitized_exp
+        cp.total_experience_years = cv_parser.calculate_total_experience_years(sanitized_exp)
     if parsed.get("education"):
         cp.education = parsed["education"]
     if parsed.get("target_roles"):
@@ -613,50 +713,28 @@ async def apply_cv_parsed_to_profile(
     if parsed.get("preferred_locations"):
         cp.preferred_locations = parsed["preferred_locations"]
 
+    cp.ai_executive_summary = await cv_parser.generate_ai_executive_summary(
+        cp.full_name, cp.headline or "Senior Specialist", cp.skills or [], cp.experience or [], cp.target_roles or []
+    )
+
     if cv_record.raw_text:
         cp.master_cv_url = cv_record.raw_text
 
     await db.commit()
     await db.refresh(cp)
 
-    print(f"[Apply CV SUCCESS] Synced CV id={cv_record.id} to main profile for {cp.full_name}")
-
-    # Fetch uploaded CVs
-    cv_res = await db.execute(select(CandidateCV).where(CandidateCV.user_id == current_user.id).order_by(CandidateCV.created_at.desc()))
-    cvs = cv_res.scalars().all()
-    formatted_cvs = [
-        CandidateCVResponse(
-            id=c.id, filename=c.filename, file_url=c.file_url, parsed_json=c.parsed_json or {}, is_primary=c.is_primary, created_at=c.created_at.isoformat() if c.created_at else datetime.now(timezone.utc).isoformat()
-        ) for c in cvs
-    ]
-
-    target_roles = getattr(cp, 'target_roles', None) or ["Performance Marketing Manager", "Digital Marketer"]
-    preferred_locations = getattr(cp, 'preferred_locations', None) or ["Dubai, UAE", "Lahore, Pakistan", "Remote"]
-    job_type = getattr(cp, 'job_type', None) or "Full-Time"
-    notice_period = getattr(cp, 'notice_period', None) or "Immediate"
-    expected_salary = getattr(cp, 'expected_salary', None) or "Negotiable"
-
-    return CandidateProfileDetailResponse(
-        id=cp.id,
-        user_id=cp.user_id,
-        email=current_user.email,
-        role=current_user.role,
+    # Index into ChromaDB Vector Store
+    vector_store.add_candidate_profile(
+        candidate_id=cp.id,
         full_name=cp.full_name,
-        phone=cp.phone,
-        location=cp.location,
-        headline=cp.headline,
-        bio=cp.bio,
+        headline=cp.headline or "",
         skills=cp.skills or [],
-        experience=cp.experience or [],
-        education=cp.education or [],
-        target_roles=target_roles,
-        preferred_locations=preferred_locations,
-        job_type=job_type,
-        notice_period=notice_period,
-        expected_salary=expected_salary,
-        master_cv_url=cp.master_cv_url,
-        uploaded_cvs=formatted_cvs
+        target_roles=cp.target_roles or [],
+        ai_executive_summary=cp.ai_executive_summary or "",
+        metadata={"location": cp.location, "user_id": cp.user_id}
     )
+
+    return await get_candidate_profile(current_user=current_user, db=db)
 
 
 @router.delete("/profile/cvs/{cv_id}")

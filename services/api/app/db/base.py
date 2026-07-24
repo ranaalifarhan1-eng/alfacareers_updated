@@ -63,7 +63,13 @@ async def init_db():
                 ("preferred_locations", "JSON DEFAULT '[]'"),
                 ("job_type", "VARCHAR DEFAULT 'Full-Time'"),
                 ("notice_period", "VARCHAR DEFAULT 'Immediate'"),
-                ("expected_salary", "VARCHAR DEFAULT 'Negotiable'")
+                ("expected_salary", "VARCHAR DEFAULT 'Negotiable'"),
+                ("expected_salary_currency", "VARCHAR DEFAULT 'AED'"),
+                ("expected_salary_amount", "VARCHAR DEFAULT '15,000'"),
+                ("expected_salary_frequency", "VARCHAR DEFAULT 'Monthly'"),
+                ("is_salary_negotiable", "BOOLEAN DEFAULT 1"),
+                ("total_experience_years", "VARCHAR DEFAULT '0.0 Years'"),
+                ("ai_executive_summary", "TEXT")
             ]
             for col_name, col_type in columns_to_add:
                 try:

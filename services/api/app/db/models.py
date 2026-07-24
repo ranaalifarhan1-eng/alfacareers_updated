@@ -63,12 +63,21 @@ class CandidateProfile(Base):
     # JSON list of education objects
     education = Column(JSON, default=list)
 
-    # Section 5: Job Preferences & Career Goals
+    # Section 5: Job Preferences & Salary Structure
     target_roles = Column(JSON, default=list)
     preferred_locations = Column(JSON, default=list)
     job_type = Column(String, default="Full-Time")
     notice_period = Column(String, default="Immediate")
     expected_salary = Column(String, default="Negotiable")
+    
+    expected_salary_currency = Column(String, default="AED")
+    expected_salary_amount = Column(String, default="15,000")
+    expected_salary_frequency = Column(String, default="Monthly")
+    is_salary_negotiable = Column(Boolean, default=True)
+
+    # Section 6: AI Analytics & Summary
+    total_experience_years = Column(String, default="0.0 Years")
+    ai_executive_summary = Column(Text, nullable=True)
     
     # Raw Master CV Content or storage URL
     master_cv_url = Column(Text, nullable=True)
