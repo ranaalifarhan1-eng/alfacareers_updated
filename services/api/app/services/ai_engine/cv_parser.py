@@ -92,7 +92,7 @@ CRITICAL RULES:
    - end_month: "Mar", "Dec" (or "" if current)
    - end_year: "2026" (or "" if current)
    - is_current: true/false
-5. Filter out non-skill words, phone numbers, emails, and stop words from skills.
+5. Filter out non-skill words, phone numbers, emails, colons, and stop words from skills.
 
 Respond ONLY with a valid JSON object matching the exact schema:
 {{
@@ -196,12 +196,12 @@ CV TEXT:
         if not full_name:
             full_name = "Candidate User"
 
-        # 4. Location Extraction
+        # 4. Location Extraction (Strict City/Country Mapping)
         raw_loc = ""
         loc_match = re.search(r"([A-Za-z0-9\s,\-\.]*(?:Lahore|Karachi|Islamabad|Rawalpindi|Faisalabad|Multan|Dubai|Abu Dhabi|Riyadh|Pakistan|UAE|Australia)[A-Za-z0-9\s,\-\.]*)", raw_text, re.IGNORECASE)
         if loc_match:
             raw_loc = loc_match.group(0).strip().rstrip(",.")
-        location = self._sanitize_location(raw_loc)
+        location = self._sanitize_location(raw_loc or raw_text)
 
         # 5. Headline & Bio Extraction
         headline = ""
@@ -337,7 +337,7 @@ CV TEXT:
                         experiences.append({
                             "company": company,
                             "job_title": role,
-                            "location": location,
+                            "location": self._sanitize_location(company),
                             "start_month": start_p["month"],
                             "start_year": start_p["year"],
                             "end_month": end_p["month"],
@@ -382,30 +382,24 @@ CV TEXT:
         }
 
     def _sanitize_location(self, loc_str: str) -> str:
-        """Reject non-location phrases like Dubai Market Experience or Funnel Optimization."""
+        """Strict Location Extractor: Maps strictly to clean cities/countries or returns empty string."""
         if not loc_str or not isinstance(loc_str, str):
             return ""
-        loc = loc_str.strip()
-        loc_lower = loc.lower()
+        loc_lower = loc_str.strip().lower()
 
-        # Reject non-location phrases
-        bad_words = [
-            "market", "experience", "optimization", "funnel", "roi", "growth",
-            "specialist", "expert", "manager", "lead", "developer", "designer",
-            "consultant", "analyst", "director", "strategy", "campaign", "railway road"
-        ]
-        if any(bad in loc_lower for bad in bad_words):
-            return ""
-
-        # Check for valid cities/countries
-        valid_geos = [
-            "dubai", "uae", "united arab emirates", "lahore", "pakistan", "karachi",
-            "islamabad", "rawalpindi", "faisalabad", "multan", "australia", "usa",
-            "uk", "united states", "united kingdom", "riyadh", "saudi arabia", "london", "dublin"
-        ]
-        for geo in valid_geos:
-            if geo in loc_lower:
-                return loc
+        # Reject non-location headline phrases explicitly
+        if "dubai" in loc_lower or "uae" in loc_lower or "united arab emirates" in loc_lower:
+            return "Dubai, UAE"
+        if "lahore" in loc_lower or "pakistan" in loc_lower or "karachi" in loc_lower or "islamabad" in loc_lower or "rawalpindi" in loc_lower:
+            return "Lahore, Pakistan"
+        if "australia" in loc_lower:
+            return "Australia"
+        if "riyadh" in loc_lower or "saudi arabia" in loc_lower:
+            return "Riyadh, Saudi Arabia"
+        if "london" in loc_lower or "uk" in loc_lower or "united kingdom" in loc_lower:
+            return "London, UK"
+        if "usa" in loc_lower or "united states" in loc_lower:
+            return "USA"
 
         return ""
 
@@ -441,15 +435,16 @@ CV TEXT:
 
     def _clean_skills_array(self, skills_list: List[str]) -> List[str]:
         """
-        Filter out headings, phone numbers, email addresses, contact labels, stop words, and non-skill noise.
+        Filter out headings, phone numbers, email addresses, colons, digits, stop words, and generic English phrases.
         """
-        forbidden = [
+        forbidden_terms = [
             "QUALIFICATIONS", "MATRIC", "LAHORE BOARD", "INTERMEDIATE", "ADP", "DIPLOMAS",
             "OBJECTIVE STATEMENT", "OBJECTIVE", "PROFILE", "REFERENCES", "GOALS", "STAKEHOLDERS",
-            "SATISFACTION", "WITH A FOCUS ON", "AND", "OR", "WITH", "THE", "FOR", "TO", "OF", "IN",
-            "EDUCATION", "EXPERIENCE", "WORK HISTORY", "PERSONAL DETAILS", "SUMMARY", "ABOUT ME",
-            "CONTACT", "ADDRESS", "RAILWAY ROAD", "PHONE", "P HONE", "LOCATION", "RESULTS",
-            "CROSS", "QUALITY", "LEADS", "DRIVEN", "MANAGED", "KEY", "TEAM", "DETAILS", "STATEMENT"
+            "SATISFACTION", "WITH A FOCUS ON", "ON THE BASIS", "ON THE BASIS OF", "QUALITY LEADS",
+            "DRIVEN BY", "IN ORDER TO", "BASED ON", "EDUCATION", "EXPERIENCE", "WORK HISTORY",
+            "PERSONAL DETAILS", "SUMMARY", "ABOUT ME", "CONTACT", "ADDRESS", "RAILWAY ROAD",
+            "PHONE", "P HONE", "LOCATION", "RESULTS", "CROSS", "QUALITY", "LEADS", "DRIVEN",
+            "MANAGED", "KEY", "TEAM", "DETAILS", "STATEMENT", "BASIS", "ON THE"
         ]
 
         cleaned = []
@@ -460,32 +455,38 @@ CV TEXT:
             item_upper = item.upper()
             item_lower = item.lower()
 
-            # 1. Strip phone numbers (e.g. +923094141972, 3094141972, Phone:, P hone:)
-            if re.search(r"\+?\d[\d\s\-()]{6,}\d", item) or "phone" in item_lower:
+            # 1. Reject colons (e.g., Phone:, Contact:, Email:, Headline:)
+            if ":" in item:
                 continue
 
-            # 2. Strip email addresses (e.g. Rana.alifarhan1@gmail.com)
-            if "@" in item or ".com" in item_lower or re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", item):
+            # 2. Reject any digits/numbers (e.g., +923094141972, 3094141972, 2022)
+            if re.search(r"\d", item):
                 continue
 
-            # 3. Strip URLs, contact info, addresses
+            # 3. Reject email patterns (@, .com, gmail)
+            if "@" in item or ".com" in item_lower or ".net" in item_lower or "gmail" in item_lower:
+                continue
+
+            # 4. Reject URLs, addresses, contact labels
             if any(c in item_lower for c in ["http", "www.", "contact", "address", "railway road", "location"]):
                 continue
 
-            # 4. Forbidden exact or sub-phrase checks
-            if any(f == item_upper or f in item_upper for f in forbidden):
+            # 5. Reject forbidden terms or sub-phrases
+            if any(f == item_upper or f in item_upper for f in forbidden_terms):
                 continue
 
-            # 5. Single word non-skill filter
+            # 6. Reject generic phrases (e.g. "on the basis", "quality leads", "driven by", "basis")
+            if any(phrase in item_lower for phrase in ["on the basis", "quality leads", "driven by", "focus on", "order to", "based on", "on the"]):
+                continue
+
+            # 7. Single word non-skill filter
             if len(item.split()) == 1 and item_lower in {
                 "results", "cross", "and", "quality", "leads", "driven", "managed", "key", "team",
                 "with", "for", "from", "focus", "skills", "details", "summary", "about", "statement",
-                "objective", "profile", "references", "goals", "stakeholders", "satisfaction"
+                "objective", "profile", "references", "goals", "stakeholders", "satisfaction", "basis"
             }:
                 continue
 
-            if re.match(r"^\d+$", item):
-                continue
             if len(item) < 2 or len(item) > 35:
                 continue
 

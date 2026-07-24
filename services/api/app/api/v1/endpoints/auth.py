@@ -353,6 +353,17 @@ async def get_candidate_profile(
         await db.commit()
         await db.refresh(cp)
 
+    # Sanitize skills & location dynamically for response
+    clean_skills = cv_parser._clean_skills_array(cp.skills or [])
+    clean_location = cv_parser._sanitize_location(cp.location or "Lahore, Pakistan")
+
+    # Sanitize experience locations
+    sanitized_exp = []
+    for e in (cp.experience or []):
+        item = dict(e)
+        item["location"] = cv_parser._sanitize_location(item.get("location", ""))
+        sanitized_exp.append(item)
+
     # Fetch uploaded CVs
     cv_res = await db.execute(select(CandidateCV).where(CandidateCV.user_id == current_user.id).order_by(CandidateCV.created_at.desc()))
     cvs = cv_res.scalars().all()
@@ -376,11 +387,11 @@ async def get_candidate_profile(
         role=current_user.role,
         full_name=cp.full_name,
         phone=cp.phone,
-        location=cp.location or "Lahore, Pakistan",
+        location=clean_location,
         headline=cp.headline or "Senior Corporate Specialist",
         bio=cp.bio or "Results-oriented professional passionate about high-impact roles.",
-        skills=cp.skills or ["Google Ads", "Performance Marketing", "Python"],
-        experience=cp.experience or [],
+        skills=clean_skills,
+        experience=sanitized_exp,
         education=cp.education or [],
         master_cv_url=cp.master_cv_url,
         uploaded_cvs=formatted_cvs
@@ -406,15 +417,20 @@ async def update_candidate_profile(
     if req.phone is not None:
         cp.phone = req.phone
     if req.location is not None:
-        cp.location = req.location
+        cp.location = cv_parser._sanitize_location(req.location)
     if req.headline is not None:
         cp.headline = req.headline
     if req.bio is not None:
         cp.bio = req.bio
     if req.skills is not None:
-        cp.skills = req.skills
+        cp.skills = cv_parser._clean_skills_array(req.skills)
     if req.experience is not None:
-        cp.experience = req.experience
+        sanitized_exp = []
+        for e in req.experience:
+            item = dict(e)
+            item["location"] = cv_parser._sanitize_location(item.get("location", ""))
+            sanitized_exp.append(item)
+        cp.experience = sanitized_exp
     if req.education is not None:
         cp.education = req.education
     if req.master_cv_text is not None:
@@ -499,14 +515,21 @@ async def apply_cv_parsed_to_profile(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Sync a saved CandidateCV's parsed JSON into the main candidate profile fields."""
+    """Sync a saved CandidateCV's parsed JSON into the main candidate profile fields, force re-parsing raw_text to sanitize legacy JSON."""
     res = await db.execute(select(CandidateCV).where(CandidateCV.id == req.cv_id, CandidateCV.user_id == current_user.id))
     cv_record = res.scalars().first()
 
     if not cv_record:
         raise HTTPException(status_code=404, detail="Target CV record not found")
 
-    parsed = cv_record.parsed_json or {}
+    # Force re-parse raw_text if present to sanitize any legacy/stale JSON
+    if cv_record.raw_text and len(cv_record.raw_text.strip()) > 10:
+        print(f"[Apply CV Parsed] Force re-parsing raw_text ({len(cv_record.raw_text)} chars) with sanitized rules...")
+        parsed = await cv_parser.parse_cv_text_with_llm(cv_record.raw_text)
+        cv_record.parsed_json = parsed
+        db.add(cv_record)
+    else:
+        parsed = cv_record.parsed_json or {}
 
     prof_res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == current_user.id))
     cp = prof_res.scalars().first()
@@ -519,16 +542,21 @@ async def apply_cv_parsed_to_profile(
         cp.full_name = parsed["full_name"]
     if parsed.get("phone"):
         cp.phone = parsed["phone"]
-    if parsed.get("location"):
-        cp.location = parsed["location"]
+    if parsed.get("location") is not None:
+        cp.location = cv_parser._sanitize_location(parsed["location"])
     if parsed.get("headline"):
         cp.headline = parsed["headline"]
     if parsed.get("bio"):
         cp.bio = parsed["bio"]
     if parsed.get("skills"):
-        cp.skills = parsed["skills"]
+        cp.skills = cv_parser._clean_skills_array(parsed["skills"])
     if parsed.get("experience"):
-        cp.experience = parsed["experience"]
+        sanitized_exp = []
+        for e in parsed["experience"]:
+            item = dict(e)
+            item["location"] = cv_parser._sanitize_location(item.get("location", ""))
+            sanitized_exp.append(item)
+        cp.experience = sanitized_exp
     if parsed.get("education"):
         cp.education = parsed["education"]
     if cv_record.raw_text:
