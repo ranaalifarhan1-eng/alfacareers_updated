@@ -58,7 +58,8 @@ async def init_db():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-            columns_to_add = [
+            # 1. candidate_profiles columns
+            cand_cols = [
                 ("target_roles", "JSON DEFAULT '[]'"),
                 ("preferred_locations", "JSON DEFAULT '[]'"),
                 ("job_type", "VARCHAR DEFAULT 'Full-Time'"),
@@ -71,11 +72,23 @@ async def init_db():
                 ("total_experience_years", "VARCHAR DEFAULT '0.0 Years'"),
                 ("ai_executive_summary", "TEXT")
             ]
-            for col_name, col_type in columns_to_add:
+            for col_name, col_type in cand_cols:
                 try:
                     await conn.execute(text(f"ALTER TABLE candidate_profiles ADD COLUMN {col_name} {col_type}"))
                 except Exception:
-                    pass  # Column already exists
+                    pass
+
+            # 2. job_posts columns
+            job_cols = [
+                ("company_id", "INTEGER"),
+                ("status", "VARCHAR DEFAULT 'published'"),
+                ("vector_indexed", "BOOLEAN DEFAULT 1")
+            ]
+            for col_name, col_type in job_cols:
+                try:
+                    await conn.execute(text(f"ALTER TABLE job_posts ADD COLUMN {col_name} {col_type}"))
+                except Exception:
+                    pass
 
 
 async def get_db():

@@ -39,14 +39,22 @@ export default function LoginPage() {
         throw new Error(data.detail || 'Invalid email or password.');
       }
 
+      const userRole = data.role || 'candidate';
+
       if (typeof window !== 'undefined') {
         localStorage.setItem('access_token', data.access_token);
         localStorage.setItem('user_id', data.user_id ? String(data.user_id) : '');
-        localStorage.setItem('user_role', data.role || 'candidate');
+        localStorage.setItem('user_role', userRole);
       }
 
-      // Hard navigation to trigger clean mount on dashboard
-      window.location.href = '/dashboard';
+      // Role-Based Navigation Redirection
+      if (userRole === 'employer') {
+        window.location.href = '/employer';
+      } else if (userRole === 'super_admin' || userRole === 'admin') {
+        window.location.href = '/admin';
+      } else {
+        window.location.href = '/dashboard';
+      }
     } catch (err: any) {
       console.error(`[AlfaCareers Auth Error] Login failed:`, err);
       if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
@@ -82,7 +90,7 @@ export default function LoginPage() {
             Sign In to AlfaCareers
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Access your co-pilot dashboard & application tracker
+            Access Candidate, Employer, or Super Admin Portals
           </p>
         </div>
 

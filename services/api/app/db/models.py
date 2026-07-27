@@ -10,6 +10,7 @@ from app.db.base import Base
 
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
+    SUPER_ADMIN = "super_admin"
     CANDIDATE = "candidate"
     EMPLOYER = "employer"
 
@@ -38,6 +39,7 @@ class User(Base):
 
     candidate_profile = relationship("CandidateProfile", back_populates="user", uselist=False)
     employer_profile = relationship("EmployerProfile", back_populates="user", uselist=False)
+    company_profile = relationship("CompanyProfile", back_populates="user", uselist=False)
     applications = relationship("ApplicationTrack", back_populates="candidate")
     uploaded_cvs = relationship("CandidateCV", back_populates="user")
 
@@ -102,6 +104,26 @@ class CandidateCV(Base):
     user = relationship("User", back_populates="uploaded_cvs")
 
 
+class CompanyProfile(Base):
+    __tablename__ = "company_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    
+    company_name = Column(String, nullable=False)
+    company_logo = Column(String, nullable=True)
+    website = Column(String, nullable=True)
+    industry = Column(String, nullable=True)
+    company_size = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
+    is_verified = Column(Boolean, default=False)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="company_profile")
+    job_posts = relationship("JobPost", back_populates="company")
+
+
 class EmployerProfile(Base):
     __tablename__ = "employer_profiles"
 
@@ -123,6 +145,7 @@ class JobPost(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     employer_id = Column(Integer, ForeignKey("employer_profiles.id"), nullable=True)
+    company_id = Column(Integer, ForeignKey("company_profiles.id"), nullable=True)
     
     title = Column(String, nullable=False)
     company_name = Column(String, nullable=False)
@@ -137,9 +160,13 @@ class JobPost(Base):
     
     authenticity_score = Column(Float, default=95.0)
     is_published = Column(Boolean, default=True)
+    status = Column(String, default="published")  # draft, pending_approval, published, closed
+    vector_indexed = Column(Boolean, default=True)
+    
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     employer = relationship("EmployerProfile", back_populates="job_posts")
+    company = relationship("CompanyProfile", back_populates="job_posts")
     applications = relationship("ApplicationTrack", back_populates="job")
 
 
