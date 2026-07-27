@@ -90,6 +90,19 @@ async def init_db():
                 except Exception:
                     pass
 
+            # 3. employer_profiles columns
+            emp_cols = [
+                ("industry", "VARCHAR"),
+                ("company_size", "VARCHAR"),
+                ("website", "VARCHAR"),
+                ("description", "TEXT")
+            ]
+            for col_name, col_type in emp_cols:
+                try:
+                    await conn.execute(text(f"ALTER TABLE employer_profiles ADD COLUMN {col_name} {col_type}"))
+                except Exception:
+                    pass
+
 
 async def get_db():
     """Dependency for obtaining async DB session."""

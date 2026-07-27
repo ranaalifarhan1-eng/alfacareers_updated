@@ -135,6 +135,7 @@ class EmployerProfile(Base):
     company_size = Column(String, nullable=True)
     website = Column(String, nullable=True)
     description = Column(Text, nullable=True)
+    is_verified = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="employer_profile")
     job_posts = relationship("JobPost", back_populates="employer")
