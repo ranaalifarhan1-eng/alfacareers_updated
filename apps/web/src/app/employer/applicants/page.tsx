@@ -13,7 +13,10 @@ import {
   UserCheck, 
   UserX, 
   Calendar,
-  Download
+  Download,
+  Check,
+  AlertTriangle,
+  X
 } from 'lucide-react';
 
 interface Applicant {
@@ -28,6 +31,9 @@ interface Applicant {
   total_experience: string;
   skills: string[];
   match_score: number;
+  matched_skills?: string[];
+  missing_skills?: string[];
+  match_reasoning?: string;
   stage: string;  // new, shortlisted, interview, hired, rejected
   applied_at: string;
 }
@@ -45,6 +51,7 @@ export default function EmployerApplicantsKanbanPage() {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -107,7 +114,6 @@ export default function EmployerApplicantsKanbanPage() {
     }
   };
 
-  // Download ATS Resume PDF
   const handleDownloadResume = async (jobId: number, candidateName: string) => {
     const token = localStorage.getItem('access_token');
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
@@ -155,7 +161,7 @@ export default function EmployerApplicantsKanbanPage() {
           Applicant Screening Pipeline ({applicants.length})
         </h1>
         <p className="text-xs text-slate-500 mt-1">
-          Review candidates ranked by ChromaDB vector match scores and drag/move between recruitment stages
+          Review candidates ranked by ChromaDB vector match scores and inspect AI skill gap telemetry
         </p>
       </div>
 
@@ -193,18 +199,26 @@ export default function EmployerApplicantsKanbanPage() {
                         </div>
                         
                         {/* Match Score Badge */}
-                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-[10px] font-black shrink-0 flex items-center space-x-0.5">
+                        <button
+                          onClick={() => setSelectedApplicant(app)}
+                          className="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full text-[10px] font-black shrink-0 flex items-center space-x-0.5 transition"
+                        >
                           <Target className="w-3 h-3 text-indigo-600" />
                           <span>{app.match_score}%</span>
-                        </span>
+                        </button>
                       </div>
 
                       <p className="text-[10px] text-slate-500">
                         {app.location} • <strong className="text-slate-700">{app.total_experience}</strong>
                       </p>
-                      <p className="text-[10px] text-blue-600 font-semibold truncate">
-                        Applied for: {app.job_title}
-                      </p>
+
+                      <button
+                        onClick={() => setSelectedApplicant(app)}
+                        className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 flex items-center space-x-1"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>View AI Match Analysis</span>
+                      </button>
 
                       {/* Stage Selector Dropdown */}
                       <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between gap-1">
@@ -237,6 +251,74 @@ export default function EmployerApplicantsKanbanPage() {
           );
         })}
       </div>
+
+      {/* AI Match Analysis Modal */}
+      {selectedApplicant && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-extrabold text-slate-900">
+                  AI Match Analysis: {selectedApplicant.full_name}
+                </h3>
+              </div>
+              <button onClick={() => setSelectedApplicant(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 flex items-center justify-between">
+                <span className="font-bold text-slate-700">Vector Match Score</span>
+                <span className="text-lg font-black text-indigo-700">{selectedApplicant.match_score}%</span>
+              </div>
+
+              {selectedApplicant.match_reasoning && (
+                <div>
+                  <h4 className="font-bold text-slate-700 mb-1">AI Fit Reasoning</h4>
+                  <p className="text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200/80 leading-relaxed">
+                    {selectedApplicant.match_reasoning}
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <h4 className="font-bold text-slate-700 mb-1.5">Matched Competencies</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedApplicant.matched_skills?.map((s) => (
+                    <span key={s} className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-semibold flex items-center space-x-1">
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      <span>{s}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-slate-700 mb-1.5">Missing Skills / Opportunities</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedApplicant.missing_skills?.map((s) => (
+                    <span key={s} className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-semibold flex items-center space-x-1">
+                      <AlertTriangle className="w-3 h-3 text-amber-600" />
+                      <span>{s}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setSelectedApplicant(null)}
+                className="px-5 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800"
+              >
+                Close Analysis
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

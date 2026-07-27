@@ -9,6 +9,7 @@ from app.db.base import get_db
 from app.db.models import User, UserRole, CompanyProfile, EmployerProfile, JobPost, ApplicationTrack, CandidateProfile
 from app.api.v1.deps import require_admin
 from app.services.ai_engine.vector_store import VectorStoreService
+from app.services.notification_service import NotificationService
 
 router = APIRouter()
 vector_store = VectorStoreService()
@@ -137,7 +138,6 @@ async def list_registered_employers(
             )
         )
 
-    # Seed default employer list if empty
     if not results:
         results.append(
             AdminEmployerResponse(
@@ -167,7 +167,6 @@ async def toggle_employer_verification(
     comp = res.scalars().first()
 
     if not comp:
-        # Check EmployerProfile
         emp_res = await db.execute(select(EmployerProfile).where(EmployerProfile.id == company_id))
         comp = emp_res.scalars().first()
 
@@ -191,7 +190,6 @@ async def list_jobs_for_moderation(
     res = await db.execute(select(JobPost))
     all_jobs = res.scalars().all()
 
-    # Seed default pending job if none in DB
     if not any(j.status == "pending_approval" for j in all_jobs):
         pending_job = JobPost(
             title="Lead Growth Marketing Specialist",
@@ -246,7 +244,7 @@ async def moderate_job_posting(
 ):
     """
     Approve & Publish to Vector Store, or Reject Job Listing:
-    If approved ('published'), automatically indexes position into ChromaDB (jobs_vector_store).
+    Triggers NotificationService.notify_job_moderated to notify employer.
     """
     res = await db.execute(select(JobPost).where(JobPost.id == job_id))
     job = res.scalars().first()
@@ -259,7 +257,6 @@ async def moderate_job_posting(
         job.is_published = True
         job.vector_indexed = True
 
-        # Index in ChromaDB
         try:
             vector_store.add_job_post(
                 job_id=job.id,
@@ -279,6 +276,14 @@ async def moderate_job_posting(
         job.is_published = False
 
     await db.commit()
+
+    # Trigger Event Notification
+    employer_email = job.apply_email or "employer@alfacareers.com"
+    NotificationService.notify_job_moderated(
+        employer_email=employer_email,
+        job_title=job.title,
+        status=req.status
+    )
 
     return {"message": f"Job Posting '{job.title}' updated to '{req.status}' successfully.", "job_id": job_id, "status": job.status}
 

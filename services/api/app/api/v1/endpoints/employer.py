@@ -10,6 +10,7 @@ from app.db.models import User, CompanyProfile, EmployerProfile, JobPost, JobSou
 from app.api.v1.deps import require_employer
 from app.services.ai_engine.vector_store import VectorStoreService
 from app.services.ai_engine.vector_matcher import VectorMatcherEngine
+from app.services.notification_service import NotificationService
 
 router = APIRouter()
 vector_store = VectorStoreService()
@@ -85,6 +86,9 @@ class ApplicantResponse(BaseModel):
     total_experience: str
     skills: List[str] = []
     match_score: float
+    matched_skills: List[str] = []
+    missing_skills: List[str] = []
+    match_reasoning: Optional[str] = None
     stage: str
     applied_at: str
 
@@ -121,7 +125,6 @@ async def create_or_update_company_profile(
         comp.company_size = req.company_size or comp.company_size
         comp.description = req.description or comp.description
 
-    # Sync EmployerProfile as well
     emp_res = await db.execute(select(EmployerProfile).where(EmployerProfile.user_id == current_user.id))
     emp = emp_res.scalars().first()
     if emp:
@@ -154,7 +157,6 @@ async def get_company_profile(
     comp = res.scalars().first()
 
     if not comp:
-        # Fallback create default company profile
         comp = CompanyProfile(
             user_id=current_user.id,
             company_name="TechVerse Solutions Ltd",
@@ -254,7 +256,6 @@ async def list_employer_jobs(
         jobs_res = await db.execute(select(JobPost).where(JobPost.apply_email == current_user.email))
         jobs = jobs_res.scalars().all()
 
-    # Seed default employer jobs if empty
     if not jobs:
         jobs_res = await db.execute(select(JobPost).limit(5))
         jobs = jobs_res.scalars().all()
@@ -288,19 +289,17 @@ async def get_employer_applicant_pipeline(
     current_user: User = Depends(require_employer),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch applicants who applied to employer's jobs with AI Vector Match Scores and pipeline stages."""
+    """Fetch applicants who applied to employer's jobs with AI Vector Match Scores, Skill Gap telemetry, and pipeline stages."""
     apps_res = await db.execute(select(ApplicationTrack))
     all_apps = apps_res.scalars().all()
 
     results = []
     for app in all_apps:
-        # Fetch job
         job_res = await db.execute(select(JobPost).where(JobPost.id == app.job_id))
         job = job_res.scalars().first()
         if not job:
             continue
 
-        # Fetch candidate user & profile
         cand_user_res = await db.execute(select(User).where(User.id == app.candidate_id))
         cand_user = cand_user_res.scalars().first()
 
@@ -313,8 +312,8 @@ async def get_employer_applicant_pipeline(
         skills = cand_prof.skills if cand_prof and cand_prof.skills else ["Google Ads", "Meta Ads", "GA4"]
         total_experience = cand_prof.total_experience_years if cand_prof and cand_prof.total_experience_years else "8.2 Years"
 
-        # Calculate exact Match Score %
-        match_score = vector_matcher.calculate_match_score(
+        # Calculate exact Match Breakdown
+        breakdown = vector_matcher.analyze_match_breakdown(
             candidate_skills=skills,
             candidate_headline=headline,
             job_title=job.title,
@@ -337,13 +336,15 @@ async def get_employer_applicant_pipeline(
                 location=location,
                 total_experience=total_experience,
                 skills=skills,
-                match_score=match_score,
+                match_score=breakdown["match_score"],
+                matched_skills=breakdown["matched_skills"],
+                missing_skills=breakdown["missing_skills"],
+                match_reasoning=breakdown["match_reasoning"],
                 stage=stage,
                 applied_at=app.applied_at.strftime("%Y-%m-%d") if app.applied_at else "2026-07-28"
             )
         )
 
-    # Sort descending by match_score
     results.sort(key=lambda x: x.match_score, reverse=True)
     return results
 
@@ -355,7 +356,7 @@ async def update_applicant_pipeline_stage(
     current_user: User = Depends(require_employer),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update candidate pipeline stage (new, shortlisted, interview, hired, rejected)."""
+    """Update candidate pipeline stage and dispatch candidate notification."""
     res = await db.execute(select(ApplicationTrack).where(ApplicationTrack.id == application_id))
     app_record = res.scalars().first()
 
@@ -364,5 +365,24 @@ async def update_applicant_pipeline_stage(
 
     app_record.status = req.stage
     await db.commit()
+
+    # Trigger Event Notification
+    cand_user_res = await db.execute(select(User).where(User.id == app_record.candidate_id))
+    cand_user = cand_user_res.scalars().first()
+
+    cand_prof_res = await db.execute(select(CandidateProfile).where(CandidateProfile.user_id == app_record.candidate_id))
+    cand_prof = cand_prof_res.scalars().first()
+
+    job_res = await db.execute(select(JobPost).where(JobPost.id == app_record.job_id))
+    job = job_res.scalars().first()
+
+    if cand_user and job:
+        cand_name = cand_prof.full_name if cand_prof else cand_user.email
+        NotificationService.notify_stage_updated(
+            candidate_name=cand_name,
+            candidate_email=cand_user.email,
+            job_title=job.title,
+            new_stage=req.stage
+        )
 
     return {"message": f"Candidate pipeline stage updated to '{req.stage}' successfully.", "application_id": application_id, "new_stage": req.stage}
