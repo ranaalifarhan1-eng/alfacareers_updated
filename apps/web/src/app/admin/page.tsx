@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { 
   ShieldCheck, 
   Users, 
@@ -13,16 +14,75 @@ import {
   TrendingUp, 
   ArrowRight,
   Database,
-  Cpu
+  Cpu,
+  Clock
 } from 'lucide-react';
 
+interface AdminAnalytics {
+  total_candidates: number;
+  total_employers: number;
+  verified_employers: number;
+  total_jobs: number;
+  pending_jobs: number;
+  total_applications: number;
+}
+
 export default function AdminAnalyticsPage() {
-  const [stats, setStats] = useState({
-    totalCandidates: 1420,
-    totalEmployers: 84,
-    publishedJobs: 312,
-    systemHealth: '100% Operational'
+  const router = useRouter();
+  const [stats, setStats] = useState<AdminAnalytics>({
+    total_candidates: 1420,
+    total_employers: 84,
+    verified_employers: 79,
+    total_jobs: 312,
+    pending_jobs: 3,
+    total_applications: 580
   });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchAnalytics = async () => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+      try {
+        const resp = await fetch(`${backendUrl}/api/v1/admin/analytics`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (resp.ok && isMounted) {
+          const data = await resp.json();
+          setStats(data);
+        }
+      } catch (err) {
+        console.warn('Fetch admin analytics notice:', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchAnalytics();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
+  if (loading) {
+    return (
+      <div className="p-8 flex items-center justify-center min-h-[400px] text-white">
+        <div className="flex items-center space-x-3 text-orange-400 font-semibold text-xs">
+          <div className="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"></div>
+          <span>Loading Admin Analytics Overview...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 max-w-7xl w-full mx-auto space-y-8 text-slate-100">
@@ -60,7 +120,7 @@ export default function AdminAnalyticsPage() {
               <Users className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-3xl font-extrabold text-white">{stats.totalCandidates}</p>
+          <p className="text-3xl font-extrabold text-white">{stats.total_candidates}</p>
           <p className="text-xs text-blue-400 font-semibold mt-1 flex items-center space-x-1">
             <TrendingUp className="w-3 h-3 text-emerald-400" />
             <span>+14.2% candidate growth</span>
@@ -74,8 +134,8 @@ export default function AdminAnalyticsPage() {
               <Building2 className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-3xl font-extrabold text-white">{stats.totalEmployers}</p>
-          <p className="text-xs text-orange-400 font-semibold mt-1">5 Pending Approvals</p>
+          <p className="text-3xl font-extrabold text-white">{stats.verified_employers} / {stats.total_employers}</p>
+          <p className="text-xs text-orange-400 font-semibold mt-1">Accounts Verified</p>
         </div>
 
         <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800">
@@ -85,19 +145,19 @@ export default function AdminAnalyticsPage() {
               <Briefcase className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-3xl font-extrabold text-white">{stats.publishedJobs}</p>
+          <p className="text-3xl font-extrabold text-white">{stats.total_jobs}</p>
           <p className="text-xs text-purple-400 font-semibold mt-1">Deep Web & Direct Ingest</p>
         </div>
 
         <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">System Health</span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-950 text-emerald-400 flex items-center justify-center font-bold border border-emerald-800">
-              <Cpu className="w-4 h-4" />
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Pending Moderation</span>
+            <div className="w-9 h-9 rounded-xl bg-amber-950 text-amber-400 flex items-center justify-center font-bold border border-amber-800">
+              <Clock className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-3xl font-extrabold text-emerald-400">{stats.systemHealth}</p>
-          <p className="text-xs text-slate-400 mt-1">FastAPI & ChromaDB Active</p>
+          <p className="text-3xl font-extrabold text-amber-400">{stats.pending_jobs}</p>
+          <p className="text-xs text-slate-400 mt-1">Awaiting Admin Approval</p>
         </div>
       </div>
 
@@ -106,16 +166,16 @@ export default function AdminAnalyticsPage() {
         <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800">
           <h3 className="text-base font-bold text-white mb-2 flex items-center space-x-2">
             <Users className="w-4 h-4 text-orange-400" />
-            <span>User Management</span>
+            <span>User Governance Directory</span>
           </h3>
           <p className="text-xs text-slate-400 mb-4 leading-relaxed">
-            Govern candidate accounts, role permissions, and active session status across all portals.
+            Govern candidate & employer accounts, role permissions, and active session status across all portals.
           </p>
           <Link
             href="/admin/users"
             className="inline-flex items-center space-x-2 text-xs font-bold text-orange-400 hover:text-orange-300"
           >
-            <span>Manage All Users</span>
+            <span>Manage User Directory</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -123,7 +183,7 @@ export default function AdminAnalyticsPage() {
         <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800">
           <h3 className="text-base font-bold text-white mb-2 flex items-center space-x-2">
             <Building2 className="w-4 h-4 text-orange-400" />
-            <span>Pending Employer Approvals</span>
+            <span>Employer Verification Queue</span>
           </h3>
           <p className="text-xs text-slate-400 mb-4 leading-relaxed">
             Review new enterprise employer accounts, verify corporate domain emails, and grant publishing rights.
