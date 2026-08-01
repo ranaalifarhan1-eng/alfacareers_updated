@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.base import get_db
-from app.db.models import User, UserRole, CompanyProfile, EmployerProfile, JobPost, ApplicationTrack, CandidateProfile
+from app.db.models import User, UserRole, CompanyProfile, EmployerProfile, JobPost, ApplicationTrack, CandidateProfile, JobSourceType
 from app.api.v1.deps import require_admin
 from app.services.ai_engine.vector_store import VectorStoreService
 from app.services.notification_service import NotificationService
