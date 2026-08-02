@@ -1,4 +1,5 @@
 from typing import List, Optional, Dict, Any
+import math
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
@@ -57,6 +58,14 @@ class AdminJobResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PaginatedAdminJobsResponse(BaseModel):
+    total_items: int
+    total_pages: int
+    current_page: int
+    limit: int
+    items: List[AdminJobResponse]
 
 
 class AdminModerateJobRequest(BaseModel):
@@ -180,44 +189,40 @@ async def toggle_employer_verification(
     return {"message": f"Employer {comp.company_name} status {action} successfully.", "company_id": company_id, "is_verified": comp.is_verified}
 
 
-@router.get("/jobs", response_model=List[AdminJobResponse])
+@router.get("/jobs", response_model=PaginatedAdminJobsResponse)
 async def list_jobs_for_moderation(
-    status_filter: Optional[str] = None,
+    status: Optional[str] = "all",
+    source: Optional[str] = None,
+    page: int = 1,
+    limit: int = 10,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    """List job postings in moderation queue."""
-    res = await db.execute(select(JobPost))
+    """List job postings in moderation queue with status filter, source filter & pagination."""
+    res = await db.execute(select(JobPost).order_by(JobPost.id.desc()))
     all_jobs = res.scalars().all()
 
-    if not any(j.status == "pending_approval" for j in all_jobs):
-        pending_job = JobPost(
-            title="Lead Growth Marketing Specialist",
-            company_name="Seven States Global Visa Services - Dubai",
-            location="Dubai, UAE",
-            job_type="Full-time",
-            salary_range="AED 20,000 - 25,000 / month",
-            description="Leading regional acquisition campaigns, performance analytics, and conversion optimization.",
-            source_type=JobSourceType.DEEP_WEB,
-            apply_email="careers@sevenstates.ae",
-            authenticity_score=97.8,
-            is_published=False,
-            status="pending_approval",
-            vector_indexed=False
-        )
-        db.add(pending_job)
-        await db.commit()
-        res = await db.execute(select(JobPost))
-        all_jobs = res.scalars().all()
-
-    if status_filter:
-        filtered = [j for j in all_jobs if j.status == status_filter]
+    # Filter by status
+    if status and status != "all":
+        filtered = [j for j in all_jobs if j.status == status]
     else:
-        filtered = all_jobs
+        filtered = list(all_jobs)
 
-    results = []
-    for j in filtered:
-        results.append(
+    # Filter by source
+    if source:
+        filtered = [j for j in filtered if j.source_type == source or (source == "employer_direct" and j.source_type == JobSourceType.EMPLOYER_DIRECT)]
+
+    total_items = len(filtered)
+    total_pages = max(1, math.ceil(total_items / limit))
+    current_page = max(1, min(page, total_pages))
+
+    start_idx = (current_page - 1) * limit
+    end_idx = start_idx + limit
+    paged_jobs = filtered[start_idx:end_idx]
+
+    items = []
+    for j in paged_jobs:
+        items.append(
             AdminJobResponse(
                 id=j.id,
                 title=j.title,
@@ -232,7 +237,13 @@ async def list_jobs_for_moderation(
             )
         )
 
-    return results
+    return PaginatedAdminJobsResponse(
+        total_items=total_items,
+        total_pages=total_pages,
+        current_page=current_page,
+        limit=limit,
+        items=items
+    )
 
 
 @router.put("/jobs/{job_id}/moderate")
